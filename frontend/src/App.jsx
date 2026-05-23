@@ -7,6 +7,7 @@ import ProfilePage from '@pages/ProfilePage'
 import DashboardPage from '@pages/DashboardPage'
 import InventoryPage from '@pages/modules/InventoryPage'
 import RestaurantePage from '@pages/modules/RestaurantePage'
+import CocinaPage from '@pages/modules/CocinaPage'
 import CalendarPage from '@pages/modules/CalendarPage'
 import TasksPage from '@pages/modules/TasksPage'
 import TimesheetPage from '@pages/modules/TimesheetPage'
@@ -27,7 +28,8 @@ function App() {
           <Route path="/perfil"      element={<ProfilePage />} />
           <Route path="/dashboard"   element={<DashboardPage />} />
           <Route path="/inventario"  element={<InventoryPage />} />
-          <Route path="/restaurante" element={<RestaurantePage />} />
+          <Route path="/restaurante"        element={<RestaurantePage />} />
+          <Route path="/restaurante/cocina"  element={<CocinaPage />} />
 
           {/* ── Módulos Core ── */}
           <Route path="/calendario"  element={<CalendarPage />} />

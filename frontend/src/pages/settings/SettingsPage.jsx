@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Settings2, Paintbrush, Users, ShieldCheck,
-  Building2, Wrench, Save, X
+  Utensils, Save, X
 } from 'lucide-react'
 import clsx from 'clsx'
 import useSettingsStore from '@store/settingsStore'
@@ -14,12 +14,14 @@ import AppearanceSection from './sections/AppearanceSection'
 import GeneralSection from './sections/GeneralSection'
 import UsersSection from './sections/UsersSection'
 import PermissionsSection from './sections/PermissionsSection'
+import MesasSection from './sections/MesasSection'
 
 const SECTIONS = [
   { id: 'general',     label: 'Ajustes generales', icon: Settings2 },
   { id: 'appearance',  label: 'Apariencia',         icon: Paintbrush },
   { id: 'users',       label: 'Usuarios',           icon: Users },
   { id: 'permissions', label: 'Permisos',           icon: ShieldCheck },
+  { id: 'mesas',       label: 'Mesas Restaurante',  icon: Utensils },
 ]
 
 export default function SettingsPage() {
@@ -32,6 +34,7 @@ export default function SettingsPage() {
     appearance:  AppearanceSection,
     users:       UsersSection,
     permissions: PermissionsSection,
+    mesas:       MesasSection,
   }[activeSection]
 
   return (

@@ -1,72 +1,96 @@
 /**
- * SYNAPSIX ERP — Chat Store
- * Estado del chat interno: contactos, conversaciones, status de conexión.
+ * SYNAPSIX ERP — Chat Store v2
+ * Estado del chat: contactos con presencia real WS + historial en memoria.
  */
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-const STATUSES = {
-  online:  { label: 'En línea',  color: '#22c55e' },
-  away:    { label: 'Ausente',   color: '#eab308' },
-  busy:    { label: 'Ocupado',   color: '#ef4444' },
+export const STATUSES = {
+  online:  { label: 'En línea',     color: '#22c55e' },
+  away:    { label: 'Ausente',      color: '#eab308' },
+  busy:    { label: 'Ocupado',      color: '#ef4444' },
   offline: { label: 'Desconectado', color: '#6b7280' },
 }
 
-const MOCK_CONTACTS = [
-  { id: '2', name: 'María García',  initials: 'MG', role: 'Inventarista',  status: 'online',   lastSeen: null },
-  { id: '3', name: 'Carlos López',  initials: 'CL', role: 'Cajero',        status: 'away',     lastSeen: '5 min' },
-  { id: '4', name: 'Ana Martínez',  initials: 'AM', role: 'Administrador', status: 'busy',     lastSeen: null },
-  { id: '5', name: 'Pedro Sánchez', initials: 'PS', role: 'Mesero',        status: 'offline',  lastSeen: '2h' },
+// Contactos de demostración — se actualizarán con presencia real vía WS
+const INITIAL_CONTACTS = [
+  { id: '2', name: 'María García',  initials: 'MG', role: 'Inventarista',  status: 'offline' },
+  { id: '3', name: 'Carlos López',  initials: 'CL', role: 'Cajero',        status: 'offline' },
+  { id: '4', name: 'Ana Martínez',  initials: 'AM', role: 'Administrador', status: 'offline' },
+  { id: '5', name: 'Pedro Sánchez', initials: 'PS', role: 'Mesero',        status: 'offline' },
 ]
-
-const MOCK_MESSAGES = {
-  '2': [
-    { id: 1, from: '2', text: '¡Hola! ¿Cómo va el sistema?', time: '10:30', mine: false },
-    { id: 2, from: 'me', text: 'Todo bien, recién instalado 🎉', time: '10:31', mine: true },
-    { id: 3, from: '2', text: 'Excelente, me parece muy bueno el diseño', time: '10:32', mine: false },
-  ],
-}
 
 const useChatStore = create(
   persist(
     (set, get) => ({
-      isOpen: false,
+      isOpen:          false,
       activeContactId: null,
-      contacts: MOCK_CONTACTS,
-      messages: MOCK_MESSAGES,
-      myStatus: 'online',
-      unreadCounts: { '2': 1 },
+      contacts:        INITIAL_CONTACTS,
+      messages:        {},      // { [contactId]: Message[] } — en memoria por sesión
+      myStatus:        'online',
+      unreadCounts:    {},
 
-      get totalUnread() {
-        return Object.values(get().unreadCounts).reduce((a, b) => a + b, 0)
-      },
+      // ── Acciones UI ────────────────────────────────────────────────────────
+      toggle:  () => set(s => ({ isOpen: !s.isOpen })),
+      close:   () => set({ isOpen: false }),
+      goBack:  () => set({ activeContactId: null }),
 
-      toggle: () => set(s => ({ isOpen: !s.isOpen })),
-      close: () => set({ isOpen: false }),
+      openChat: (contactId) => set(s => ({
+        isOpen:          true,
+        activeContactId: contactId,
+        unreadCounts:    { ...s.unreadCounts, [contactId]: 0 },
+      })),
 
-      openChat: (contactId) => {
-        set(s => ({
-          isOpen: true,
-          activeContactId: contactId,
-          unreadCounts: { ...s.unreadCounts, [contactId]: 0 },
-        }))
-      },
+      clearUnread: (contactId) => set(s => ({
+        unreadCounts: { ...s.unreadCounts, [contactId]: 0 },
+      })),
 
-      goBack: () => set({ activeContactId: null }),
+      setMyStatus: (status) => set({ myStatus: status }),
 
+      // ── Presencia (WebSocket) ──────────────────────────────────────────────
+      setContactStatus: (userId, status) => set(s => ({
+        contacts: s.contacts.map(c => c.id === userId ? { ...c, status } : c),
+      })),
+
+      // Agrega contacto dinámico si no existe
+      ensureContact: (userId, name) => set(s => {
+        if (s.contacts.find(c => c.id === userId)) return {}
+        const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+        return {
+          contacts: [...s.contacts, { id: userId, name, initials, role: 'Usuario', status: 'online' }],
+        }
+      }),
+
+      // ── Mensajes ──────────────────────────────────────────────────────────
+      addMessage: (contactId, msg) => set(s => {
+        const prev = s.messages[contactId] || []
+        const newMessages = { ...s.messages, [contactId]: [...prev, msg] }
+        // Incrementar no-leídos si no es la conversación activa
+        const unread = s.activeContactId === contactId || msg.mine
+          ? s.unreadCounts
+          : { ...s.unreadCounts, [contactId]: (s.unreadCounts[contactId] || 0) + 1 }
+        return { messages: newMessages, unreadCounts: unread }
+      }),
+
+      // Compatibilidad con v1
       sendMessage: (text) => {
         const { activeContactId, messages } = get()
         if (!activeContactId || !text.trim()) return
-        const prev = messages[activeContactId] || []
-        const msg = { id: Date.now(), from: 'me', text: text.trim(), time: new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }), mine: true }
-        set({ messages: { ...messages, [activeContactId]: [...prev, msg] } })
+        const msg = {
+          id:   Date.now(),
+          text: text.trim(),
+          time: new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
+          mine: true,
+        }
+        set({ messages: { ...messages, [activeContactId]: [...(messages[activeContactId] || []), msg] } })
       },
-
-      setMyStatus: (status) => set({ myStatus: status }),
     }),
-    { name: 'synapsix-chat', partialize: (s) => ({ myStatus: s.myStatus }) }
+    {
+      name: 'synapsix-chat-v2',
+      // Solo persistir preferencias — los mensajes son en memoria
+      partialize: (s) => ({ myStatus: s.myStatus }),
+    }
   )
 )
 
-export { STATUSES }
 export default useChatStore
