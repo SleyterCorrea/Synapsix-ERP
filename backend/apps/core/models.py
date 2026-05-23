@@ -168,8 +168,12 @@ class Module(models.Model):
     Los módulos se activan/desactivan sin tocar código fuente.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(
+        'Company', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='modules', verbose_name=_('Empresa')
+    )
     name = models.CharField(_('Nombre'), max_length=100)
-    slug = models.SlugField(_('Slug'), unique=True, max_length=50)
+    slug = models.SlugField(_('Slug'), max_length=50)
     description = models.TextField(_('Descripción'), blank=True)
     icon = models.CharField(_('Ícono (SVG key)'), max_length=50, default='grid')
     color = models.CharField(_('Color de Acento'), max_length=7, default='#C0392B')
@@ -178,16 +182,20 @@ class Module(models.Model):
     is_core = models.BooleanField(_('Módulo Core'), default=False)
     order = models.PositiveSmallIntegerField(_('Orden'), default=100)
     version = models.CharField(_('Versión'), max_length=20, default='0.1.0')
+    settings = models.JSONField(_('Ajustes del módulo'), default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = _('Módulo')
         verbose_name_plural = _('Módulos')
         ordering = ['order', 'name']
+        # Slug único por empresa (o globalmente si no tiene empresa)
+        unique_together = [['company', 'slug']]
 
     def __str__(self):
         status = "✓" if self.is_active else "○"
         return f"{status} {self.name} (v{self.version})"
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -152,9 +152,11 @@ class Command(BaseCommand):
 
         for module_data in MODULES_CATALOG:
             slug = module_data['slug']
+            # Módulos globales (company=None) — compartidos por todas las empresas
             obj, created = Module.objects.update_or_create(
+                company=None,
                 slug=slug,
-                defaults=module_data
+                defaults=module_data,
             )
             if created:
                 created_count += 1

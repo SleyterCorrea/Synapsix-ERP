@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
+from django.db import models
 from django.db.models import Sum, Q
 
 from .models import User, Company, Module, Role, Event, Task, TimeEntry
@@ -203,25 +204,27 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def modules_view(request):
-    modules = Module.objects.all().order_by('order', 'name')
+    # Módulos globales (company=None)
+    modules = Module.objects.filter(company=None).order_by('order', 'name')
     return Response({'count': modules.count(), 'results': ModuleSerializer(modules, many=True).data})
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def active_modules_view(request):
-    modules = Module.objects.filter(is_active=True).order_by('order')
+    modules = Module.objects.filter(company=None, is_active=True).order_by('order')
     return Response(ModuleSerializer(modules, many=True).data)
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def toggle_module_view(request, slug):
     try:
-        module = Module.objects.get(slug=slug)
+        module = Module.objects.get(company=None, slug=slug)
         module.is_active = not module.is_active
         module.save()
         return Response({'slug': module.slug, 'is_active': module.is_active})
     except Module.DoesNotExist:
         return Response({'error': 'Módulo no encontrado.'}, status=404)
+
 
 
 # ─── IA CHAT ─────────────────────────────────────────────────────────────────
@@ -472,6 +475,53 @@ def dashboard_view(request):
         'upcoming_events': EventSerializer(upcoming_events, many=True).data,
         'week_hours':      float(week_hours),
         'hours_by_day':    [{'date': str(h['date']), 'hours': float(h['hours'])} for h in hours_by_day],
+        'week_start':      str(week_start),
+        'week_end':        str(week_end),
         'team_count':      company.users.filter(is_active=True).count() if company else 1,
         'today':           str(today),
     })
+
+
+# ─── AJUSTES POR MÓDULO ──────────────────────────────────────────────────────
+@api_view(['GET', 'PATCH'])
+@permission_classes([permissions.IsAuthenticated])
+def module_settings_view(request, module_slug):
+    """
+    GET|PATCH /api/v1/core/settings/<module_slug>/
+
+    Almacena y recupera ajustes JSON de cualquier módulo.
+    Los settings se guardan en Module.settings (JSONField) de la empresa.
+    """
+    company = getattr(request.user, 'company', None)
+
+    try:
+        # Busca módulo específico de la empresa primero, luego global
+        module = Module.objects.filter(
+            slug=module_slug
+        ).filter(
+            models.Q(company=company) | models.Q(company=None)
+        ).order_by('company').first()   # company-specific primero
+        if module is None:
+            if request.method == 'GET':
+                return Response({})
+            return Response({'detail': 'Módulo no encontrado.'}, status=404)
+    except Exception:
+        if request.method == 'GET':
+            return Response({})
+        return Response({'detail': 'Error al buscar módulo.'}, status=500)
+
+
+    if request.method == 'GET':
+        return Response(module.settings or {})
+
+    # PATCH — guardar ajustes (solo admin)
+    if not (request.user.is_superuser or request.user.is_staff or
+            (request.user.role and request.user.role.can_access_admin)):
+        return Response({'detail': 'Sin permiso.'}, status=403)
+
+    current = module.settings or {}
+    current.update(request.data)
+    module.settings = current
+    module.save(update_fields=['settings'])
+    return Response(module.settings)
+

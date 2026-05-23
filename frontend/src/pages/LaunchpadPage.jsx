@@ -5,7 +5,7 @@
  * - Fondo: imagen subida o gradiente del store
  * - Logo dinámico del tenant (imagen o letra, sin cuadradito)
  */
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, LogOut, Package, Receipt, Utensils, ShoppingBag,
@@ -23,6 +23,9 @@ import AppsModal from '@components/launchpad/AppsModal'
 import AIChatPanel from '@components/layout/AIChatPanel'
 import useSettingsStore from '@store/settingsStore'
 import useTenantStore from '@store/tenantStore'
+import api from '@api/axios'
+
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 // ─── Módulos que son herramientas internas (NO aparecen en el grid) ──────────
 const INTERNAL_SLUGS = ['chat']
@@ -47,24 +50,26 @@ const ModuleIconComponent = ({ slug, size = 28 }) => {
   return <Icon style={{ width: size, height: size }} />
 }
 
-// ─── Logo del Tenant (imagen natural, sin cuadradito) ────────────────────────
-const TenantLogo = ({ logoBase64, companyName, primaryColor }) => {
-  if (logoBase64) {
+// ─── Logo del Tenant ─────────────────────────────────────────────────────────
+const TenantLogo = ({ logoUrl, companyName, primaryColor }) => {
+  const [imgErr, setImgErr] = useState(false)
+  if (logoUrl && !imgErr) {
     return (
       <img
-        src={logoBase64}
+        src={logoUrl}
         alt={companyName}
-        style={{ maxHeight: 32, maxWidth: 140 }}
+        onError={() => setImgErr(true)}
+        style={{ maxHeight: 36, maxWidth: 160 }}
         className="w-auto object-contain"
       />
     )
   }
   return (
     <div
-      className="w-8 h-8 rounded-lg flex items-center justify-center"
+      className="w-9 h-9 rounded-xl flex items-center justify-center"
       style={{ backgroundColor: `${primaryColor}20`, border: `1px solid ${primaryColor}40` }}
     >
-      <span className="font-black text-sm" style={{ color: primaryColor }}>
+      <span className="font-black text-base" style={{ color: primaryColor }}>
         {companyName?.[0] || 'S'}
       </span>
     </div>
@@ -165,18 +170,25 @@ export default function LaunchpadPage() {
   const { user, logout } = useAuth()
   const { modules, isLoading, error, refetch } = useModules()
   const { isOpen: spotlightOpen, query, setQuery, results, open, close } = useSpotlight(modules)
-  const { getBackgroundStyle } = useSettingsStore()
-  const { companyName, companyTagline, logoBase64, primaryColor, launchpadBg, launchpadBgPos } = useTenantStore()
+  const { getBackgroundStyle, companyLogoUrl, companyName: storeCompanyName, setCompanyLogo, initTheme } = useSettingsStore()
+  const { companyName: tenantName, companyTagline, primaryColor } = useTenantStore()
 
   const [appsOpen, setAppsOpen] = useState(false)
   const [localModules, setLocalModules] = useState(null)
 
   const allModules = localModules || modules
-
-  // Módulos visibles en el grid: activos, sin los internos (chat, etc.)
   const visibleModules = allModules.filter(m => m.is_active && !INTERNAL_SLUGS.includes(m.slug))
-  // Módulos inactivos (los que aparecen en el modal Apps)
   const inactiveModules = allModules.filter(m => !m.is_active)
+
+  // ── Cargar info empresa del backend al montar ─────────────────────────────
+  useEffect(() => {
+    initTheme()  // aplica tema guardado
+    api.get('/core/company/').then(r => {
+      const c = r.data
+      const logoUrl = c.logo_url || (c.logo ? `${BASE_URL}${c.logo.startsWith('/') ? '' : '/'}${c.logo}` : null)
+      setCompanyLogo(logoUrl, c.name)
+    }).catch(() => {})
+  }, [])
 
   const handleToggle = useCallback((slug) => {
     const base = localModules || modules
@@ -185,10 +197,8 @@ export default function LaunchpadPage() {
 
   const handleLogout = async () => await logout()
 
-  // Fondo del launchpad
-  const launchpadBackground = launchpadBg
-    ? `url("${launchpadBg}") ${launchpadBgPos || 'center'}/cover no-repeat`
-    : getBackgroundStyle()
+  const displayName = storeCompanyName || tenantName || 'Synapsix'
+  const launchpadBackground = getBackgroundStyle()
 
   return (
     <div className="min-h-screen relative" style={{ background: launchpadBackground }}>
@@ -206,8 +216,9 @@ export default function LaunchpadPage() {
 
       {/* Overlays de fondo */}
       <div className="absolute inset-0 noise-bg pointer-events-none" />
-      {launchpadBg ? (
-        <div className="absolute inset-0 bg-black/50 pointer-events-none" />
+      {useSettingsStore.getState().wallpaperUrl ? (
+        <div className="absolute inset-0 bg-black/45 pointer-events-none" />
+
       ) : (
         <div className="absolute inset-0 pointer-events-none"
           style={{ background: `radial-gradient(ellipse 60% 40% at 50% -10%, ${primaryColor}10 0%, transparent 70%)` }}
@@ -220,9 +231,9 @@ export default function LaunchpadPage() {
 
           {/* Logo + nombre del tenant */}
           <div className="flex items-center gap-3 flex-shrink-0">
-            <TenantLogo logoBase64={logoBase64} companyName={companyName} primaryColor={primaryColor} />
+            <TenantLogo logoUrl={companyLogoUrl} companyName={displayName} primaryColor={primaryColor} />
             <div className="hidden sm:block">
-              <span className="text-synapsix-text font-bold text-sm">{companyName}</span>
+              <span className="text-synapsix-text font-bold text-sm">{displayName}</span>
               <span className="text-synapsix-muted text-xs ml-1 font-mono">{companyTagline}</span>
             </div>
           </div>
@@ -348,7 +359,7 @@ export default function LaunchpadPage() {
       <footer className="relative border-t border-synapsix-border mt-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <span className="text-synapsix-muted-2 text-xs">Synapsix ERP v0.1.0 · Core</span>
-          <span className="text-synapsix-muted-2 text-xs">{user?.company?.name || companyName}</span>
+          <span className="text-synapsix-muted-2 text-xs">{user?.company?.name || displayName}</span>
         </div>
       </footer>
 

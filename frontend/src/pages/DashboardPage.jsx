@@ -1,7 +1,3 @@
-/**
- * SYNAPSIX ERP — DashboardPage
- * Home inteligente: métricas, tareas, eventos, horas y accesos rápidos.
- */
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -14,6 +10,31 @@ import clsx from 'clsx'
 import api from '@api/axios'
 import { useAuth } from '@hooks/useAuth'
 import useTenantStore from '@store/tenantStore'
+import useSettingsStore from '@store/settingsStore'
+
+// Mock data para cuando el backend no tiene el endpoint aún
+const MOCK_DATA = {
+  task_stats:      { todo: 3, in_progress: 2, done: 8, total: 13 },
+  week_hours:      24.5,
+  hours_by_day:    [
+    { date: new Date(Date.now() - 86400000*4).toISOString().split('T')[0], hours: 6 },
+    { date: new Date(Date.now() - 86400000*3).toISOString().split('T')[0], hours: 7 },
+    { date: new Date(Date.now() - 86400000*2).toISOString().split('T')[0], hours: 5 },
+    { date: new Date(Date.now() - 86400000*1).toISOString().split('T')[0], hours: 4 },
+    { date: new Date().toISOString().split('T')[0], hours: 2.5 },
+  ],
+  week_start: new Date(Date.now() - 86400000*6).toISOString().split('T')[0],
+  week_end:   new Date(Date.now() + 86400000).toISOString().split('T')[0],
+  team_count:      5,
+  today_events:    [],
+  upcoming_events: [],
+  my_tasks:        [
+    { id: 1, title: 'Revisar inventario inicial',   status: 'todo',        priority: 'high',   due_date: new Date(Date.now() + 86400000*2).toISOString().split('T')[0] },
+    { id: 2, title: 'Configurar módulos activos',   status: 'in_progress', priority: 'urgent', due_date: new Date(Date.now() + 86400000).toISOString().split('T')[0] },
+    { id: 3, title: 'Agregar usuarios al sistema',  status: 'todo',        priority: 'medium', due_date: null },
+  ],
+}
+
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const PRIORITY_COLOR = {
@@ -205,20 +226,25 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { primaryColor } = useTenantStore()
+  const { getBackgroundStyle } = useSettingsStore()
 
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState(null)
+  const [usingMock, setUsingMock] = useState(false)
   const [tasks, setTasks]     = useState([])
 
   const fetchDashboard = useCallback(async () => {
-    setLoading(true); setError(null)
+    setLoading(true)
     try {
       const res = await api.get('/core/dashboard/')
       setData(res.data)
       setTasks(res.data.my_tasks || [])
-    } catch(e) {
-      setError('No se pudo cargar el dashboard.')
+      setUsingMock(false)
+    } catch {
+      // Si el endpoint no existe aún, usamos datos demo
+      setData(MOCK_DATA)
+      setTasks(MOCK_DATA.my_tasks)
+      setUsingMock(true)
     } finally {
       setLoading(false)
     }
@@ -238,13 +264,12 @@ export default function DashboardPage() {
   const today = new Date()
   const dateStr = today.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
-  const allEvents = data ? [...(data.today_events || []), ...(data.upcoming_events || [])] : []
   const completionRate = data?.task_stats?.total > 0
     ? Math.round((data.task_stats.done / data.task_stats.total) * 100)
     : 0
 
   if (loading) return (
-    <div className="min-h-screen bg-synapsix-dark flex items-center justify-center">
+    <div className="min-h-screen flex items-center justify-center" style={{ background: getBackgroundStyle() }}>
       <div className="text-center space-y-3">
         <Loader2 className="w-10 h-10 text-synapsix-muted animate-spin mx-auto" />
         <p className="text-synapsix-muted text-sm">Cargando dashboard...</p>
@@ -252,18 +277,15 @@ export default function DashboardPage() {
     </div>
   )
 
-  if (error) return (
-    <div className="min-h-screen bg-synapsix-dark flex items-center justify-center">
-      <div className="text-center space-y-4">
-        <AlertCircle className="w-12 h-12 text-red-400/50 mx-auto" />
-        <p className="text-synapsix-muted">{error}</p>
-        <button onClick={fetchDashboard} className="btn-secondary gap-2"><RefreshCw className="w-4 h-4" />Reintentar</button>
-      </div>
-    </div>
-  )
-
   return (
-    <div className="min-h-screen bg-synapsix-dark">
+    <div className="min-h-screen" style={{ background: getBackgroundStyle() }}>
+      {/* Mock banner */}
+      {usingMock && (
+        <div className="bg-yellow-500/15 border-b border-yellow-500/30 px-4 py-2 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+          <p className="text-xs text-yellow-300">Mostrando datos de ejemplo — el endpoint <code>/core/dashboard/</code> aún no está disponible.</p>
+        </div>
+      )}
       {/* Header */}
       <header className="border-b border-synapsix-border glass sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-4">

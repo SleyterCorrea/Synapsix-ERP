@@ -12,7 +12,7 @@ from apps.core.views import (
     EventListCreateView, EventDetailView,
     TaskListCreateView, TaskDetailView,
     TimeEntryListCreateView, TimeEntryDetailView,
-    dashboard_view,
+    dashboard_view, module_settings_view,
 )
 
 urlpatterns = [
@@ -52,4 +52,7 @@ urlpatterns = [
 
     # Dashboard
     path('dashboard/',                  dashboard_view,             name='dashboard'),
+
+    # Ajustes por módulo
+    path('settings/<str:module_slug>/', module_settings_view,      name='module-settings'),
 ]

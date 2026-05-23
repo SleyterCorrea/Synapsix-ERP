@@ -1,10 +1,9 @@
 /**
- * SYNAPSIX ERP — SettingsPage v3 (estilo Odoo)
+ * SYNAPSIX ERP — SettingsPage v4 (estilo Odoo)
  *
- * Sidebar izquierdo con secciones:
- *  • Ajustes generales (empresa, apariencia)
- *  • Usuarios y empresas
- *  • Por cada módulo ACTIVO → sus ajustes propios
+ * Sidebar izquierdo dinámico:
+ *  • Secciones estáticas: General, Apariencia, Usuarios, Roles
+ *  • Secciones de módulos activos: Calendario, Inventario, Mesas, etc.
  *
  * Los módulos inactivos NO aparecen en el sidebar.
  */
@@ -13,32 +12,49 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, Settings2, Paintbrush, Users, ShieldCheck,
   Utensils, Package, Receipt, Calendar, CheckSquare, Clock,
-  BarChart2, ChevronRight, Loader2,
+  BarChart2, ChevronRight, Loader2, Search,
 } from 'lucide-react'
 import clsx from 'clsx'
 import useSettingsStore from '@store/settingsStore'
 import api from '@api/axios'
 
-// Secciones lazy
-import GeneralSection   from './sections/GeneralSection'
-import AppearanceSection from './sections/AppearanceSection'
-import UsersSection     from './sections/UsersSection'
-import PermissionsSection from './sections/PermissionsSection'
-import MesasSection     from './sections/MesasSection'
+// ── Secciones lazy ────────────────────────────────────────────────────────────
+import GeneralSection           from './sections/GeneralSection'
+import AppearanceSection        from './sections/AppearanceSection'
+import UsersSection             from './sections/UsersSection'
+import PermissionsSection       from './sections/PermissionsSection'
+import MesasSection             from './sections/MesasSection'
+import CalendarSettingsSection  from './sections/CalendarSettingsSection'
+import InventarioSettingsSection from './sections/InventarioSettingsSection'
 
-// ─── Mapa de íconos de módulo ─────────────────────────────────────────────────
-const MOD_ICONS = {
-  restaurante:  Utensils,
-  inventario:   Package,
-  facturacion:  Receipt,
-  calendario:   Calendar,
-  tareas:       CheckSquare,
-  'hoja-horas': Clock,
-  reportes:     BarChart2,
+// ── Mapa sección → componente ─────────────────────────────────────────────────
+const SECTION_MAP = {
+  general:     GeneralSection,
+  appearance:  AppearanceSection,
+  users:       UsersSection,
+  permissions: PermissionsSection,
+  // Módulos
+  mesas:                MesasSection,
+  'cal-sync':           CalendarSettingsSection,
+  'inv-settings':       InventarioSettingsSection,
 }
 
-// ─── Ajustes estáticos (siempre visibles) ────────────────────────────────────
-const STATIC_SECTIONS = [
+// ── Ajustes por módulo slug → secciones en sidebar ───────────────────────────
+const MODULE_SECTION_MAP = {
+  restaurante: [
+    { id: 'mesas',        label: 'Mesas y zonas',  icon: Utensils },
+  ],
+  calendario: [
+    { id: 'cal-sync',     label: 'Sincronización',  icon: Calendar },
+  ],
+  inventario: [
+    { id: 'inv-settings', label: 'Inventario',      icon: Package },
+  ],
+  // Se puede agregar más módulos aquí
+}
+
+// ── Secciones estáticas (siempre visibles) ────────────────────────────────────
+const STATIC_GROUPS = [
   {
     group: 'CONFIGURACIÓN',
     items: [
@@ -49,43 +65,27 @@ const STATIC_SECTIONS = [
   {
     group: 'USUARIOS',
     items: [
-      { id: 'users',       label: 'Usuarios',  icon: Users },
+      { id: 'users',       label: 'Usuarios',         icon: Users },
       { id: 'permissions', label: 'Roles y permisos', icon: ShieldCheck },
     ],
   },
 ]
 
-// ─── Ajustes por módulo (se muestran solo si el módulo está activo) ───────────
-const MODULE_SECTIONS = {
-  restaurante: [
-    { id: 'mesas',   label: 'Mesas y zonas',  icon: Utensils },
-  ],
-  inventario: [
-    // placeholder — se puede agregar InventarioSettingsSection
-  ],
-}
-
-// ─── Componentes de sección por módulo ───────────────────────────────────────
-const SECTION_MAP = {
-  general:     GeneralSection,
-  appearance:  AppearanceSection,
-  users:       UsersSection,
-  permissions: PermissionsSection,
-  mesas:       MesasSection,
-}
-
-// Fallback para módulos sin sección implementada aún
+// ── Fallback ──────────────────────────────────────────────────────────────────
 function ComingSoonSection({ label }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 gap-4 opacity-60">
       <Settings2 className="w-12 h-12 text-synapsix-muted" />
-      <p className="text-synapsix-muted text-sm">Ajustes de <strong>{label}</strong> próximamente</p>
+      <p className="text-synapsix-muted text-sm">
+        Ajustes de <strong>{label}</strong> — próximamente
+      </p>
     </div>
   )
 }
 
+// ── Componente principal ──────────────────────────────────────────────────────
 export default function SettingsPage() {
-  const navigate  = useNavigate()
+  const navigate        = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { getBackgroundStyle } = useSettingsStore()
 
@@ -93,8 +93,9 @@ export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState(initialSection)
   const [activeModules, setActiveModules] = useState([])
   const [loadingModules, setLoadingModules] = useState(true)
+  const [sidebarQuery, setSidebarQuery]     = useState('')
 
-  // Cargar módulos activos del backend
+  // Cargar módulos activos
   useEffect(() => {
     api.get('/core/modules/active/').then(r => {
       const mods = Array.isArray(r.data) ? r.data : (r.data?.results || [])
@@ -102,99 +103,111 @@ export default function SettingsPage() {
     }).catch(() => {}).finally(() => setLoadingModules(false))
   }, [])
 
-  // Sincronizar URL con sección activa
   const goTo = (id) => {
     setActiveSection(id)
     setSearchParams({ section: id })
   }
 
-  // Construir secciones de módulos activos
-  const moduleSections = useMemo(() => {
+  // Grupos de módulos activos
+  const moduleGroups = useMemo(() => {
     const groups = []
     activeModules.forEach(mod => {
-      const sections = MODULE_SECTIONS[mod.slug]
+      const sections = MODULE_SECTION_MAP[mod.slug]
       if (sections && sections.length > 0) {
         groups.push({
           group: mod.name.toUpperCase(),
-          items: sections.map(s => ({
-            ...s,
-            icon: s.icon || MOD_ICONS[mod.slug] || Settings2,
-          })),
+          items: sections,
         })
       }
     })
     return groups
   }, [activeModules])
 
-  const allGroups = [...STATIC_SECTIONS, ...moduleSections]
+  const allGroups = [...STATIC_GROUPS, ...moduleGroups]
 
-  // Componente activo
+  // Filtrar sidebar con búsqueda
+  const filteredGroups = useMemo(() => {
+    if (!sidebarQuery) return allGroups
+    const q = sidebarQuery.toLowerCase()
+    return allGroups
+      .map(g => ({ ...g, items: g.items.filter(i => i.label.toLowerCase().includes(q)) }))
+      .filter(g => g.items.length > 0)
+  }, [allGroups, sidebarQuery])
+
+  const allItems = allGroups.flatMap(g => g.items)
+  const activeLabel = allItems.find(i => i.id === activeSection)?.label || ''
   const Component = SECTION_MAP[activeSection]
-  const activeLabel = allGroups
-    .flatMap(g => g.items)
-    .find(i => i.id === activeSection)?.label || ''
 
   return (
     <div className="min-h-screen relative" style={{ background: getBackgroundStyle() }}>
       <div className="absolute inset-0 noise-bg pointer-events-none" />
 
-      {/* ─── Top bar ─────────────────────────────────────────────────── */}
+      {/* ── Top bar ──────────────────────────────────────────────────── */}
       <div className="relative border-b border-synapsix-border glass sticky top-0 z-40">
         <div className="flex items-center gap-3 px-4 h-12">
-          <button
-            onClick={() => navigate('/launchpad')}
-            className="flex items-center gap-1.5 text-synapsix-muted hover:text-synapsix-text-2 transition-colors text-sm"
-          >
+          <button onClick={() => navigate('/launchpad')}
+            className="flex items-center gap-1.5 text-synapsix-muted hover:text-synapsix-text-2 transition-colors text-sm">
             <ArrowLeft className="w-4 h-4" />
             <span className="hidden sm:inline">Synapsix ERP</span>
           </button>
           <div className="w-px h-4 bg-synapsix-border mx-1" />
           <span className="text-synapsix-muted text-sm">Ajustes</span>
-          {activeSection !== 'general' && (
+          {activeSection !== 'general' && activeLabel && (
             <>
-              <ChevronRight className="w-3.5 h-3.5 text-synapsix-border-2" />
+              <ChevronRight className="w-3.5 h-3.5 text-synapsix-muted-2" />
               <span className="text-synapsix-text font-semibold text-sm">{activeLabel}</span>
             </>
           )}
         </div>
       </div>
 
-      {/* ─── Body ────────────────────────────────────────────────────── */}
+      {/* ── Body ─────────────────────────────────────────────────────── */}
       <div className="relative flex h-[calc(100vh-48px)]">
 
-        {/* ── Sidebar ─────────────────────────────────────────────────── */}
-        <aside className="w-60 border-r border-synapsix-border bg-synapsix-surface/70 backdrop-blur-sm flex-shrink-0 overflow-y-auto">
-          <nav className="py-3">
-            {allGroups.map(({ group, items }) => (
+        {/* ── Sidebar ─────────────────────────────────────────────── */}
+        <aside className="w-60 border-r border-synapsix-border bg-synapsix-surface/80 backdrop-blur-sm flex-shrink-0 flex flex-col">
+          {/* Búsqueda en sidebar */}
+          <div className="px-3 py-2 border-b border-synapsix-border">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-synapsix-muted" />
+              <input
+                value={sidebarQuery} onChange={e => setSidebarQuery(e.target.value)}
+                placeholder="Buscar ajuste..."
+                className="w-full bg-synapsix-surface-2 border border-synapsix-border rounded-lg pl-8 pr-3 py-1.5 text-xs text-synapsix-text placeholder:text-synapsix-muted focus:outline-none focus:border-synapsix-border-2"
+              />
+            </div>
+          </div>
+
+          {/* Nav */}
+          <nav className="flex-1 overflow-y-auto py-2">
+            {filteredGroups.map(({ group, items }) => (
               <div key={group} className="mb-1">
                 <p className="px-4 pt-3 pb-1 text-[9px] font-bold uppercase tracking-widest text-synapsix-muted-2 select-none">
                   {group}
                 </p>
                 {items.map(({ id, label, icon: Icon }) => (
-                  <button
-                    key={id}
-                    id={`settings-nav-${id}`}
-                    onClick={() => goTo(id)}
+                  <button key={id} id={`settings-nav-${id}`} onClick={() => goTo(id)}
                     className={clsx(
-                      'w-full flex items-center gap-2.5 px-4 py-2 text-sm text-left transition-all duration-150',
+                      'w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left transition-all duration-150',
                       activeSection === id
                         ? 'bg-synapsix-red/12 text-synapsix-red font-semibold border-r-2 border-synapsix-red'
                         : 'text-synapsix-muted hover:text-synapsix-text-2 hover:bg-synapsix-surface-2'
-                    )}
-                  >
+                    )}>
                     <Icon className="w-4 h-4 flex-shrink-0" />
-                    {label}
+                    <span className="truncate">{label}</span>
                   </button>
                 ))}
               </div>
             ))}
 
-            {/* Módulos inactivos — indicador */}
-            {!loadingModules && (
-              <div className="px-4 pt-4 pb-2">
-                <p className="text-[9px] text-synapsix-muted-2 leading-relaxed">
-                  Los ajustes de módulos aparecen aquí al activarlos desde el Launchpad.
-                </p>
+            {/* Hint cuando no hay módulos activos */}
+            {!loadingModules && moduleGroups.length === 0 && (
+              <div className="px-4 pt-4 pb-3">
+                <div className="p-3 rounded-xl bg-synapsix-surface-2 border border-synapsix-border">
+                  <p className="text-[10px] text-synapsix-muted leading-relaxed">
+                    Activa módulos desde el <span className="text-synapsix-text-2 font-medium">Launchpad → Apps</span> para ver sus ajustes aquí.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -206,12 +219,12 @@ export default function SettingsPage() {
           </nav>
         </aside>
 
-        {/* ── Content ─────────────────────────────────────────────────── */}
+        {/* ── Content ──────────────────────────────────────────────── */}
         <main className="flex-1 overflow-y-auto p-6 lg:p-8">
           <div className="max-w-3xl mx-auto">
             {Component
               ? <Component />
-              : <ComingSoonSection label={activeLabel} />
+              : <ComingSoonSection label={activeLabel || activeSection} />
             }
           </div>
         </main>

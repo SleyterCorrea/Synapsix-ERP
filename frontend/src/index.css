@@ -1,14 +1,47 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+/* ─── SYNAPSIX ERP — Global Styles ─────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ─── CSS VARIABLES — DARK (default) ─────────────────────────────────────── */
+:root {
+  --color-bg:         10, 10, 12;
+  --color-dark:       10, 10, 12;
+  --color-surface:    18, 18, 22;
+  --color-surface-2:  24, 24, 30;
+  --color-surface-3:  32, 32, 40;
+  --color-border:     255, 255, 255, 0.07;
+  --color-border-2:   255, 255, 255, 0.15;
+  --color-text:       240, 240, 245;
+  --color-text-2:     190, 190, 205;
+  --color-muted:      120, 120, 140;
+  --color-muted-2:    80, 80, 100;
+  --color-primary:    192, 57, 43;
+  --shadow-spotlight: 0 25px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+}
+
+/* ─── CSS VARIABLES — LIGHT ──────────────────────────────────────────────── */
+[data-theme="light"] {
+  --color-bg:         248, 249, 252;
+  --color-dark:       248, 249, 252;
+  --color-surface:    255, 255, 255;
+  --color-surface-2:  243, 244, 248;
+  --color-surface-3:  233, 234, 240;
+  --color-border:     0, 0, 0, 0.09;
+  --color-border-2:   0, 0, 0, 0.18;
+  --color-text:       20, 20, 30;
+  --color-text-2:     55, 55, 75;
+  --color-muted:      110, 110, 130;
+  --color-muted-2:    150, 150, 170;
+  --color-primary:    192, 57, 43;
+  --shadow-spotlight: 0 20px 60px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.07);
+}
+
 /* ─── Base ────────────────────────────────────────────────────────────────── */
 @layer base {
-  *, *::before, *::after {
-    box-sizing: border-box;
-  }
+  *, *::before, *::after { box-sizing: border-box; }
 
   html {
     scroll-behavior: smooth;
@@ -17,119 +50,156 @@
   }
 
   body {
-    @apply bg-synapsix-dark text-synapsix-text font-sans;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: rgb(var(--color-bg));
+    color: rgb(var(--color-text));
     min-height: 100vh;
+    transition: background 0.3s ease, color 0.3s ease;
   }
 
-  /* Scrollbar personalizada */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    background: theme('colors.synapsix.dark-2');
-  }
-  ::-webkit-scrollbar-thumb {
-    @apply bg-synapsix-border-2 rounded-full;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-synapsix-muted;
-  }
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: rgb(var(--color-surface-2)); }
+  ::-webkit-scrollbar-thumb { background: rgba(var(--color-border-2)); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(var(--color-muted)); }
 
-  /* Selección de texto */
-  ::selection {
-    background: rgba(192, 57, 43, 0.35);
-    color: white;
-  }
+  ::selection { background: rgba(192, 57, 43, 0.35); color: white; }
 }
 
 /* ─── Componentes ─────────────────────────────────────────────────────────── */
 @layer components {
 
-  /* Botón primario */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2
-           bg-synapsix-red hover:bg-synapsix-red-dark
-           text-white font-semibold text-sm
-           px-5 py-2.5 rounded-xl
-           transition-all duration-200
-           focus:outline-none focus:ring-2 focus:ring-synapsix-red focus:ring-offset-2 focus:ring-offset-synapsix-dark
-           disabled:opacity-50 disabled:cursor-not-allowed;
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    background: rgb(var(--color-primary));
+    color: white; font-weight: 600; font-size: 0.875rem;
+    padding: 0.625rem 1.25rem; border-radius: 0.75rem;
+    transition: all 0.2s ease; border: none; cursor: pointer;
   }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  /* Botón secundario */
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2
-           bg-synapsix-surface-2 hover:bg-synapsix-surface-3
-           border border-synapsix-border hover:border-synapsix-border-2
-           text-synapsix-text-2 font-medium text-sm
-           px-5 py-2.5 rounded-xl
-           transition-all duration-200;
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    background: rgb(var(--color-surface-2));
+    border: 1px solid rgba(var(--color-border));
+    color: rgb(var(--color-text-2)); font-weight: 500; font-size: 0.875rem;
+    padding: 0.625rem 1.25rem; border-radius: 0.75rem;
+    transition: all 0.2s ease; cursor: pointer;
+  }
+  .btn-secondary:hover {
+    background: rgb(var(--color-surface-3));
+    border-color: rgba(var(--color-border-2));
+    color: rgb(var(--color-text));
   }
 
-  /* Input estilizado */
   .input-field {
-    @apply w-full bg-synapsix-surface-2 border border-synapsix-border
-           text-synapsix-text placeholder:text-synapsix-muted-2
-           rounded-xl px-4 py-3 text-sm
-           focus:outline-none focus:border-synapsix-red focus:ring-1 focus:ring-synapsix-red
-           transition-all duration-200;
+    width: 100%;
+    background: rgb(var(--color-surface-2));
+    border: 1px solid rgba(var(--color-border));
+    color: rgb(var(--color-text));
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem; font-size: 0.875rem;
+    transition: all 0.2s ease; outline: none;
+  }
+  .input-field::placeholder { color: rgb(var(--color-muted-2)); }
+  .input-field:focus {
+    border-color: rgb(var(--color-primary));
+    box-shadow: 0 0 0 3px rgba(var(--color-primary), 0.15);
   }
 
-  /* Card de módulo */
+  select.input-field { cursor: pointer; }
+
+  .glass {
+    background: rgba(var(--color-surface), 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(var(--color-border));
+  }
+
+  /* Para modo claro, glass más sólido */
+  [data-theme="light"] .glass {
+    background: rgba(var(--color-surface), 0.95);
+    border: 1px solid rgba(var(--color-border));
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+
   .module-card {
-    @apply relative flex flex-col items-center justify-center gap-3
-           bg-synapsix-surface border border-synapsix-border
-           rounded-2xl p-6 cursor-pointer
-           transition-all duration-300
-           shadow-card hover:shadow-card-hover
-           hover:-translate-y-1 hover:border-synapsix-border-2;
+    position: relative; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 0.75rem;
+    background: rgb(var(--color-surface));
+    border: 1px solid rgba(var(--color-border));
+    border-radius: 1rem; padding: 1.5rem; cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 8px 32px rgba(0,0,0,0.2);
   }
-
+  .module-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(var(--color-border-2));
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4), 0 16px 48px rgba(0,0,0,0.3);
+  }
   .module-card.active:hover {
-    @apply border-synapsix-red;
-    box-shadow: 0 0 0 1px rgba(192, 57, 43, 0.2), 0 8px 32px rgba(0,0,0,0.4);
+    border-color: rgb(var(--color-primary));
+    box-shadow: 0 0 0 1px rgba(var(--color-primary),0.2), 0 8px 32px rgba(0,0,0,0.4);
   }
 
-  /* Badge */
   .badge {
-    @apply inline-flex items-center gap-1
-           text-xs font-medium px-2 py-0.5 rounded-full;
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    font-size: 0.75rem; font-weight: 500;
+    padding: 0.125rem 0.5rem; border-radius: 999px;
   }
-
   .badge-active {
-    @apply badge bg-emerald-500/15 text-emerald-400 border border-emerald-500/25;
+    @apply badge;
+    background: rgba(39,174,96,0.15); color: #27AE60;
+    border: 1px solid rgba(39,174,96,0.25);
   }
-
   .badge-inactive {
-    @apply badge bg-synapsix-surface-3 text-synapsix-muted border border-synapsix-border;
+    @apply badge;
+    background: rgb(var(--color-surface-3));
+    color: rgb(var(--color-muted));
+    border: 1px solid rgba(var(--color-border));
   }
 }
 
-/* ─── Utilidades ─────────────────────────────────────────────────────────── */
+/* ─── Utilidades ──────────────────────────────────────────────────────────── */
 @layer utilities {
   .text-gradient {
-    background: linear-gradient(135deg, #F0F0F5 0%, #8A8A9E 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    background: linear-gradient(135deg, rgb(var(--color-text)) 0%, rgb(var(--color-muted)) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  [data-theme="light"] .text-gradient {
+    background: linear-gradient(135deg, #14141E 0%, #6060A0 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
   }
 
   .text-gradient-red {
     background: linear-gradient(135deg, #E74C3C 0%, #C0392B 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .glass {
-    background: rgba(20, 20, 26, 0.85);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
   }
 
   .noise-bg {
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
   }
+
+  .shadow-spotlight {
+    box-shadow: var(--shadow-spotlight);
+  }
 }
+
+/* ─── Animaciones clave ───────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity:0; transform: translateY(8px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+@keyframes slide-in-up {
+  from { opacity:0; transform: translateY(20px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+@keyframes fade-in-scale {
+  from { opacity:0; transform: scale(0.95); }
+  to   { opacity:1; transform: scale(1); }
+}
+
+.animate-fade-in      { animation: fade-in 0.3s ease-out; }
+.animate-slide-in-up  { animation: slide-in-up 0.4s ease-out; }
+.animate-fade-in-scale{ animation: fade-in-scale 0.25s ease-out; }
