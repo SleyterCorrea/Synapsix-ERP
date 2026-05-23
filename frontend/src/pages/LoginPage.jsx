@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { useAuth } from '@hooks/useAuth'
+import useSettingsStore from '@store/settingsStore'
 import clsx from 'clsx'
 
 // ─── Logo SVG inline (Synapsix) ───────────────────────────────────────────
@@ -22,6 +23,7 @@ const SynapsixLogo = () => (
 export default function LoginPage() {
   const navigate = useNavigate()
   const { login, isAuthenticated, isLoading, error, clearError } = useAuth()
+  const { getBackgroundStyle } = useSettingsStore()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -56,7 +58,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-synapsix-dark flex items-center justify-center p-4 relative overflow-hidden">
+    <div
+      className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
+      style={{ background: getBackgroundStyle() }}
+    >
 
       {/* ─── Fondo con textura y gradiente sutil ─────────────────────────── */}
       <div className="absolute inset-0 noise-bg pointer-events-none" />

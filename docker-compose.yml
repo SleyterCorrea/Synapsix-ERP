@@ -1,7 +1,6 @@
-version: '3.9'
-
 # ===========================================
 # SYNAPSIX ERP — Docker Compose
+# Con Redis para WebSockets (Django Channels)
 # Comando: docker-compose up --build
 # ===========================================
 
@@ -30,7 +29,24 @@ services:
       - synapsix_network
 
   # ─────────────────────────────────────────
-  # 2. BACKEND — Django + DRF
+  # 2. REDIS — Pub/Sub para WebSockets
+  # ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: synapsix_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - synapsix_network
+
+  # ─────────────────────────────────────────
+  # 3. BACKEND — Django + Channels + Daphne
   # ─────────────────────────────────────────
   backend:
     container_name: synapsix_backend
@@ -40,6 +56,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      REDIS_URL: redis://redis:6379
     volumes:
       - ./backend:/app
       - static_volume:/app/staticfiles
@@ -49,16 +67,20 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     command: >
-      sh -c "python manage.py migrate --noinput &&
+      sh -c "pip install -r requirements/base.txt -q &&
+             python manage.py makemigrations core inventario restaurante --noinput &&
+             python manage.py migrate --noinput &&
              python manage.py create_superuser_if_none &&
              python manage.py seed_modules &&
-             python manage.py runserver 0.0.0.0:8000"
+             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     networks:
       - synapsix_network
 
   # ─────────────────────────────────────────
-  # 3. FRONTEND — React + Vite
+  # 4. FRONTEND — React + Vite
   # ─────────────────────────────────────────
   frontend:
     container_name: synapsix_frontend

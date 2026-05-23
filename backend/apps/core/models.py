@@ -175,7 +175,7 @@ class Module(models.Model):
     color = models.CharField(_('Color de Acento'), max_length=7, default='#C0392B')
     route = models.CharField(_('Ruta Frontend'), max_length=100, blank=True)
     is_active = models.BooleanField(_('Activo'), default=False)
-    is_core = models.BooleanField(_('Módulo Core'), default=False)  # No se puede desactivar
+    is_core = models.BooleanField(_('Módulo Core'), default=False)
     order = models.PositiveSmallIntegerField(_('Orden'), default=100)
     version = models.CharField(_('Versión'), max_length=20, default='0.1.0')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -188,3 +188,102 @@ class Module(models.Model):
     def __str__(self):
         status = "✓" if self.is_active else "○"
         return f"{status} {self.name} (v{self.version})"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CALENDARIO — Eventos
+# ─────────────────────────────────────────────────────────────────────────────
+class Event(models.Model):
+    """Evento del calendario. Asociado a usuario y empresa."""
+    COLOR_CHOICES = [
+        ('#C0392B', 'Rojo'),  ('#2980B9', 'Azul'), ('#27AE60', 'Verde'),
+        ('#D35400', 'Naranja'), ('#8E44AD', 'Morado'), ('#16A085', 'Teal'),
+        ('#F39C12', 'Amarillo'), ('#7F8C8D', 'Gris'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(_('Título'), max_length=200)
+    description = models.TextField(_('Descripción'), blank=True)
+    location = models.CharField(_('Lugar'), max_length=200, blank=True)
+    start_datetime = models.DateTimeField(_('Inicio'))
+    end_datetime = models.DateTimeField(_('Fin'))
+    all_day = models.BooleanField(_('Todo el día'), default=False)
+    color = models.CharField(_('Color'), max_length=7, default='#2980B9', choices=COLOR_CHOICES)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_events')
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='events')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _('Evento')
+        verbose_name_plural = _('Eventos')
+        ordering = ['start_datetime']
+
+    def __str__(self):
+        return f"{self.title} ({self.start_datetime:%Y-%m-%d})"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAREAS — Kanban
+# ─────────────────────────────────────────────────────────────────────────────
+class Task(models.Model):
+    """Tarea del sistema de Kanban por usuario."""
+    class Status(models.TextChoices):
+        TODO        = 'todo',        _('Por hacer')
+        IN_PROGRESS = 'in_progress', _('En progreso')
+        DONE        = 'done',        _('Completado')
+
+    class Priority(models.TextChoices):
+        LOW    = 'low',    _('Baja')
+        MEDIUM = 'medium', _('Media')
+        HIGH   = 'high',   _('Alta')
+        URGENT = 'urgent', _('Urgente')
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(_('Título'), max_length=300)
+    description = models.TextField(_('Descripción'), blank=True)
+    status = models.CharField(_('Estado'), max_length=20, choices=Status.choices, default=Status.TODO)
+    priority = models.CharField(_('Prioridad'), max_length=20, choices=Priority.choices, default=Priority.MEDIUM)
+    assigned_to = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name='assigned_tasks'
+    )
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_tasks')
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='tasks')
+    due_date = models.DateField(_('Fecha límite'), null=True, blank=True)
+    order = models.PositiveIntegerField(_('Orden'), default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _('Tarea')
+        verbose_name_plural = _('Tareas')
+        ordering = ['order', '-created_at']
+
+    def __str__(self):
+        return f"[{self.status}] {self.title}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HOJA DE HORAS — Time Tracking
+# ─────────────────────────────────────────────────────────────────────────────
+class TimeEntry(models.Model):
+    """Registro de horas trabajadas por usuario y día."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='time_entries')
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='time_entries')
+    date = models.DateField(_('Fecha'))
+    hours = models.DecimalField(_('Horas'), max_digits=4, decimal_places=2)
+    description = models.CharField(_('Descripción'), max_length=300)
+    task = models.ForeignKey(
+        Task, null=True, blank=True, on_delete=models.SET_NULL, related_name='time_entries'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('Registro de Horas')
+        verbose_name_plural = _('Registros de Horas')
+        ordering = ['-date', 'user']
+        unique_together = ['user', 'date', 'description']  # evitar duplicados
+
+    def __str__(self):
+        return f"{self.user.get_short_name()} | {self.date} | {self.hours}h — {self.description}"

@@ -20,6 +20,7 @@ ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').sp
 
 # --- APLICACIONES INSTALADAS ---
 DJANGO_APPS = [
+    'daphne',                              # ← debe ir ANTES de staticfiles
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -34,6 +35,7 @@ THIRD_PARTY_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'django_filters',
+    'channels',
 ]
 
 # ─── Apps de Synapsix ─────────────────────────────────────────────────────────
@@ -176,3 +178,13 @@ CORS_ALLOW_CREDENTIALS = True
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
+
+# --- DJANGO CHANNELS (WebSockets) ---
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [(os.environ.get('REDIS_HOST', 'redis'), int(os.environ.get('REDIS_PORT', 6379)))],
+        },
+    },
+}
