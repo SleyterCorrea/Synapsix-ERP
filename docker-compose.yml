@@ -1,0 +1,98 @@
+version: '3.9'
+
+# ===========================================
+# SYNAPSIX ERP — Docker Compose
+# Comando: docker-compose up --build
+# ===========================================
+
+services:
+  # ─────────────────────────────────────────
+  # 1. BASE DE DATOS — PostgreSQL 16
+  # ─────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: synapsix_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - synapsix_network
+
+  # ─────────────────────────────────────────
+  # 2. BACKEND — Django + DRF
+  # ─────────────────────────────────────────
+  backend:
+    container_name: synapsix_backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py create_superuser_if_none &&
+             python manage.py seed_modules &&
+             python manage.py runserver 0.0.0.0:8000"
+    networks:
+      - synapsix_network
+
+  # ─────────────────────────────────────────
+  # 3. FRONTEND — React + Vite
+  # ─────────────────────────────────────────
+  frontend:
+    container_name: synapsix_frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - synapsix_network
+
+# ─────────────────────────────────────────
+# VOLÚMENES PERSISTENTES
+# ─────────────────────────────────────────
+volumes:
+  postgres_data:
+    name: synapsix_postgres_data
+  static_volume:
+    name: synapsix_static
+  media_volume:
+    name: synapsix_media
+
+# ─────────────────────────────────────────
+# RED INTERNA
+# ─────────────────────────────────────────
+networks:
+  synapsix_network:
+    name: synapsix_network
+    driver: bridge

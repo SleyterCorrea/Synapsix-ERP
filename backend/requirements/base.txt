@@ -1,0 +1,22 @@
+# ─── Core ───────────────────────────────────
+Django==4.2.14
+djangorestframework==3.15.2
+djangorestframework-simplejwt==5.3.1
+django-cors-headers==4.4.0
+django-filter==24.3
+
+# ─── Base de Datos ──────────────────────────
+psycopg2-binary==2.9.9
+
+# ─── Autenticación & Seguridad ──────────────
+PyJWT==2.8.0
+cryptography==42.0.8
+
+# ─── Utilidades ─────────────────────────────
+python-dotenv==1.0.1
+Pillow==10.4.0
+django-extensions==3.2.3
+
+# ─── Producción ─────────────────────────────
+gunicorn==22.0.0
+whitenoise==6.7.0

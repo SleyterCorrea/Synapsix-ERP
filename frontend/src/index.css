@@ -1,0 +1,135 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base ────────────────────────────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-synapsix-dark text-synapsix-text font-sans;
+    min-height: 100vh;
+  }
+
+  /* Scrollbar personalizada */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: theme('colors.synapsix.dark-2');
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-synapsix-border-2 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-synapsix-muted;
+  }
+
+  /* Selección de texto */
+  ::selection {
+    background: rgba(192, 57, 43, 0.35);
+    color: white;
+  }
+}
+
+/* ─── Componentes ─────────────────────────────────────────────────────────── */
+@layer components {
+
+  /* Botón primario */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+           bg-synapsix-red hover:bg-synapsix-red-dark
+           text-white font-semibold text-sm
+           px-5 py-2.5 rounded-xl
+           transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-synapsix-red focus:ring-offset-2 focus:ring-offset-synapsix-dark
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Botón secundario */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2
+           bg-synapsix-surface-2 hover:bg-synapsix-surface-3
+           border border-synapsix-border hover:border-synapsix-border-2
+           text-synapsix-text-2 font-medium text-sm
+           px-5 py-2.5 rounded-xl
+           transition-all duration-200;
+  }
+
+  /* Input estilizado */
+  .input-field {
+    @apply w-full bg-synapsix-surface-2 border border-synapsix-border
+           text-synapsix-text placeholder:text-synapsix-muted-2
+           rounded-xl px-4 py-3 text-sm
+           focus:outline-none focus:border-synapsix-red focus:ring-1 focus:ring-synapsix-red
+           transition-all duration-200;
+  }
+
+  /* Card de módulo */
+  .module-card {
+    @apply relative flex flex-col items-center justify-center gap-3
+           bg-synapsix-surface border border-synapsix-border
+           rounded-2xl p-6 cursor-pointer
+           transition-all duration-300
+           shadow-card hover:shadow-card-hover
+           hover:-translate-y-1 hover:border-synapsix-border-2;
+  }
+
+  .module-card.active:hover {
+    @apply border-synapsix-red;
+    box-shadow: 0 0 0 1px rgba(192, 57, 43, 0.2), 0 8px 32px rgba(0,0,0,0.4);
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center gap-1
+           text-xs font-medium px-2 py-0.5 rounded-full;
+  }
+
+  .badge-active {
+    @apply badge bg-emerald-500/15 text-emerald-400 border border-emerald-500/25;
+  }
+
+  .badge-inactive {
+    @apply badge bg-synapsix-surface-3 text-synapsix-muted border border-synapsix-border;
+  }
+}
+
+/* ─── Utilidades ─────────────────────────────────────────────────────────── */
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, #F0F0F5 0%, #8A8A9E 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .text-gradient-red {
+    background: linear-gradient(135deg, #E74C3C 0%, #C0392B 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glass {
+    background: rgba(20, 20, 26, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .noise-bg {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  }
+}

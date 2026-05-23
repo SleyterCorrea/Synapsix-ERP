@@ -1,0 +1,1 @@
+"""SYNAPSIX ERP — Settings Package"""
