@@ -1,51 +1,56 @@
 /**
- * SYNAPSIX ERP — UsersSection
- * Gestión de usuarios con API real: lista, búsqueda, crear, activar/desactivar.
+ * SYNAPSIX ERP — UsersSection v3
+ * Lista de usuarios con búsqueda, filtros, crear con ROL incluido.
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Users, Search, UserPlus, RefreshCw, X, Eye, EyeOff,
   CheckCircle, XCircle, AlertCircle, Loader2, ChevronRight,
-  Mail, User, Lock, ShieldCheck,
+  Mail, User, Lock, ShieldCheck, Filter,
 } from 'lucide-react'
 import clsx from 'clsx'
 import api from '@api/axios'
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-const STATUS_BADGE = {
-  true:  { label: 'Activo',      cls: 'badge-active' },
-  false: { label: 'Inactivo',    cls: 'badge-inactive' },
+const ROLE_LABELS = {
+  admin:        'Administrador',
+  cajero:       'Cajero',
+  mozo:         'Mozo / Mesero',
+  inventarista: 'Inventarista',
+  viewer:       'Solo Lectura',
 }
 
-const ROLES_DISPLAY = [
-  { value: '', label: 'Sin rol asignado' },
-  { value: 'admin', label: 'Administrador' },
-  { value: 'employee', label: 'Empleado' },
-  { value: 'portal', label: 'Portal / Cliente' },
+const ROLE_OPTIONS = [
+  { value: '',             label: 'Sin rol' },
+  { value: 'admin',        label: 'Administrador' },
+  { value: 'cajero',       label: 'Cajero' },
+  { value: 'mozo',         label: 'Mozo / Mesero' },
+  { value: 'inventarista', label: 'Inventarista' },
+  { value: 'viewer',       label: 'Solo Lectura' },
 ]
 
-// ─── Modal de Creación de Usuario ────────────────────────────────────────────
-function CreateUserModal({ onClose, onCreated }) {
+// ─── Modal Crear Usuario ──────────────────────────────────────────────────────
+function CreateUserModal({ onClose, onCreated, roles }) {
   const [form, setForm] = useState({
     first_name: '', last_name: '', email: '',
-    password: '', password_confirm: '', is_active: true,
+    password: '', password_confirm: '',
+    role_id: '', is_active: true,
   })
   const [showPwd, setShowPwd] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [errors, setErrors] = useState({})
+  const [errors, setErrors]   = useState({})
 
-  const set = (key, val) => {
-    setForm(f => ({ ...f, [key]: val }))
-    setErrors(e => ({ ...e, [key]: undefined }))
+  const set = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }))
+    setErrors(e => ({ ...e, [k]: undefined }))
   }
 
   const validate = () => {
     const e = {}
     if (!form.first_name.trim()) e.first_name = 'Requerido'
-    if (!form.email.trim()) e.email = 'Requerido'
+    if (!form.email.trim())      e.email      = 'Requerido'
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Email inválido'
-    if (!form.password) e.password = 'Mínimo 8 caracteres'
+    if (!form.password)               e.password = 'Requerido'
     else if (form.password.length < 8) e.password = 'Mínimo 8 caracteres'
     if (form.password !== form.password_confirm) e.password_confirm = 'No coinciden'
     return e
@@ -55,36 +60,31 @@ function CreateUserModal({ onClose, onCreated }) {
     e.preventDefault()
     const errs = validate()
     if (Object.keys(errs).length) { setErrors(errs); return }
-
     setLoading(true)
     try {
       const payload = {
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
-        email: form.email.trim().toLowerCase(),
-        password: form.password,
+        first_name:       form.first_name.trim(),
+        last_name:        form.last_name.trim(),
+        email:            form.email.trim().toLowerCase(),
+        password:         form.password,
         password_confirm: form.password_confirm,
-        is_active: form.is_active,
+        is_active:        form.is_active,
+        role_id:          form.role_id || null,
       }
       const res = await api.post('/core/users/', payload)
       onCreated(res.data)
       onClose()
     } catch (err) {
-      const apiErrors = err.response?.data || {}
-      if (typeof apiErrors === 'object') {
-        setErrors(apiErrors)
-      } else {
-        setErrors({ general: 'Error al crear el usuario. Intenta de nuevo.' })
-      }
-    } finally {
-      setLoading(false)
-    }
+      const d = err.response?.data || {}
+      if (typeof d === 'object') setErrors(d)
+      else setErrors({ general: 'Error al crear el usuario.' })
+    } finally { setLoading(false) }
   }
 
   return (
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" onClick={onClose} />
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md mx-4">
+      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-lg mx-4">
         <form
           onSubmit={handleSubmit}
           className="bg-synapsix-surface border border-synapsix-border rounded-2xl shadow-spotlight overflow-hidden"
@@ -96,42 +96,32 @@ function CreateUserModal({ onClose, onCreated }) {
               <UserPlus className="w-4 h-4 text-synapsix-muted" />
               <h2 className="text-sm font-bold text-synapsix-text">Nuevo Usuario</h2>
             </div>
-            <button type="button" onClick={onClose} className="text-synapsix-muted hover:text-synapsix-text-2 transition-colors">
+            <button type="button" onClick={onClose} className="text-synapsix-muted hover:text-synapsix-text-2 p-1 rounded-lg hover:bg-synapsix-surface-2 transition-colors">
               <X className="w-4 h-4" />
             </button>
           </div>
 
           {/* Body */}
-          <div className="p-5 space-y-4">
+          <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
             {errors.general && (
               <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" /> {errors.general}
               </div>
             )}
 
-            {/* Nombre y Apellido */}
+            {/* Nombre */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium flex items-center gap-1">
-                  <User className="w-3 h-3" /> Nombre *
-                </label>
-                <input
-                  value={form.first_name}
-                  onChange={e => set('first_name', e.target.value)}
+                <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium">Nombre *</label>
+                <input value={form.first_name} onChange={e => set('first_name', e.target.value)}
                   className={clsx('input-field text-sm', errors.first_name && 'border-red-500/50')}
-                  placeholder="Juan"
-                  autoFocus
-                />
+                  placeholder="Juan" autoFocus />
                 {errors.first_name && <p className="text-xs text-red-400">{errors.first_name}</p>}
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium">Apellido</label>
-                <input
-                  value={form.last_name}
-                  onChange={e => set('last_name', e.target.value)}
-                  className="input-field text-sm"
-                  placeholder="García"
-                />
+                <input value={form.last_name} onChange={e => set('last_name', e.target.value)}
+                  className="input-field text-sm" placeholder="García" />
               </div>
             </div>
 
@@ -140,30 +130,39 @@ function CreateUserModal({ onClose, onCreated }) {
               <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium flex items-center gap-1">
                 <Mail className="w-3 h-3" /> Correo electrónico *
               </label>
-              <input
-                type="email"
-                value={form.email}
-                onChange={e => set('email', e.target.value)}
+              <input type="email" value={form.email} onChange={e => set('email', e.target.value)}
                 className={clsx('input-field text-sm', errors.email && 'border-red-500/50')}
-                placeholder="usuario@empresa.com"
-              />
+                placeholder="usuario@empresa.com" />
               {errors.email && <p className="text-xs text-red-400">{errors.email}</p>}
             </div>
 
-            {/* Contraseña */}
+            {/* Rol */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3" /> Rol de acceso
+              </label>
+              <select value={form.role_id} onChange={e => set('role_id', e.target.value)}
+                className="input-field text-sm cursor-pointer">
+                <option value="">Sin rol asignado</option>
+                {(roles || []).map(r => (
+                  <option key={r.id} value={r.id}>
+                    {ROLE_LABELS[r.name] || r.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Contraseñas */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium flex items-center gap-1">
                   <Lock className="w-3 h-3" /> Contraseña *
                 </label>
                 <div className="relative">
-                  <input
-                    type={showPwd ? 'text' : 'password'}
-                    value={form.password}
+                  <input type={showPwd ? 'text' : 'password'} value={form.password}
                     onChange={e => set('password', e.target.value)}
                     className={clsx('input-field text-sm pr-8', errors.password && 'border-red-500/50')}
-                    placeholder="Mín. 8 caracteres"
-                  />
+                    placeholder="Mín. 8 caracteres" />
                   <button type="button" onClick={() => setShowPwd(!showPwd)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-synapsix-muted hover:text-synapsix-text-2">
                     {showPwd ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -173,37 +172,25 @@ function CreateUserModal({ onClose, onCreated }) {
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium">Confirmar *</label>
-                <input
-                  type={showPwd ? 'text' : 'password'}
-                  value={form.password_confirm}
+                <input type={showPwd ? 'text' : 'password'} value={form.password_confirm}
                   onChange={e => set('password_confirm', e.target.value)}
                   className={clsx('input-field text-sm', errors.password_confirm && 'border-red-500/50')}
-                  placeholder="Repetir contraseña"
-                />
+                  placeholder="Repetir contraseña" />
                 {errors.password_confirm && <p className="text-xs text-red-400">{errors.password_confirm}</p>}
               </div>
             </div>
 
-            {/* Estado activo */}
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-synapsix-surface-2 border border-synapsix-border">
-              <ShieldCheck className="w-4 h-4 text-synapsix-muted flex-shrink-0" />
-              <div className="flex-1">
+            {/* Estado */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-synapsix-surface-2 border border-synapsix-border">
+              <div>
                 <p className="text-xs font-medium text-synapsix-text-2">Cuenta activa</p>
-                <p className="text-[10px] text-synapsix-muted">El usuario podrá iniciar sesión de inmediato</p>
+                <p className="text-[10px] text-synapsix-muted">El usuario podrá iniciar sesión inmediatamente</p>
               </div>
-              <button
-                type="button"
-                onClick={() => set('is_active', !form.is_active)}
-                className={clsx(
-                  'relative w-10 h-5.5 rounded-full transition-colors flex-shrink-0',
-                  form.is_active ? 'bg-emerald-500' : 'bg-synapsix-surface-3'
-                )}
-                style={{ height: '22px', width: '40px' }}
-              >
-                <span className={clsx(
-                  'absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all',
-                  form.is_active ? 'left-5' : 'left-0.5'
-                )} />
+              <button type="button" onClick={() => set('is_active', !form.is_active)}
+                className={clsx('relative rounded-full transition-colors flex-shrink-0', form.is_active ? 'bg-emerald-500' : 'bg-synapsix-surface-3')}
+                style={{ width: 40, height: 22 }}>
+                <span className="absolute top-0.5 rounded-full bg-white shadow transition-all"
+                  style={{ width: 17, height: 17, left: form.is_active ? 20 : 3 }} />
               </button>
             </div>
           </div>
@@ -222,64 +209,63 @@ function CreateUserModal({ onClose, onCreated }) {
   )
 }
 
-// ─── MAIN: UsersSection ───────────────────────────────────────────────────────
+// ─── MAIN ────────────────────────────────────────────────────────────────────
 export default function UsersSection() {
-  const navigate = useNavigate()
-  const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [query, setQuery] = useState('')
+  const navigate     = useNavigate()
+  const [users, setUsers]       = useState([])
+  const [roles, setRoles]       = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState(null)
+  const [query, setQuery]       = useState('')
+  const [filterActive, setFilterActive] = useState('all') // all | active | inactive
   const [showCreate, setShowCreate] = useState(false)
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const fetchAll = useCallback(async () => {
+    setLoading(true); setError(null)
     try {
-      const res = await api.get('/core/users/')
-      // El endpoint puede devolver array o { results: [...] }
-      const list = Array.isArray(res.data) ? res.data : res.data.results || []
+      const [uRes, rRes] = await Promise.all([
+        api.get('/core/users/'),
+        api.get('/core/roles/'),
+      ])
+      const list = Array.isArray(uRes.data) ? uRes.data : (uRes.data.results || [])
       setUsers(list)
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Error al cargar usuarios.')
-    } finally {
-      setLoading(false)
-    }
+      setRoles(Array.isArray(rRes.data) ? rRes.data : [])
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Error al cargar usuarios.')
+    } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { fetchUsers() }, [fetchUsers])
+  useEffect(() => { fetchAll() }, [fetchAll])
 
   const filtered = users.filter(u => {
-    const q = query.toLowerCase()
-    return !q
-      || u.first_name?.toLowerCase().includes(q)
-      || u.last_name?.toLowerCase().includes(q)
-      || u.email?.toLowerCase().includes(q)
+    const q  = query.toLowerCase()
+    const ok = !q || [u.first_name, u.last_name, u.email, u.role?.name]
+      .filter(Boolean).some(v => v.toLowerCase().includes(q))
+    const activeOk = filterActive === 'all'
+      || (filterActive === 'active' && u.is_active)
+      || (filterActive === 'inactive' && !u.is_active)
+    return ok && activeOk
   })
 
-  const activeCount = users.filter(u => u.is_active).length
+  const activeCount   = users.filter(u => u.is_active).length
+  const inactiveCount = users.length - activeCount
 
-  const handleToggleActive = async (userId, currentStatus) => {
+  const handleToggle = async (userId, cur) => {
     try {
-      await api.patch(`/core/users/${userId}/`, { is_active: !currentStatus })
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_active: !currentStatus } : u))
-    } catch (err) {
-      console.error('Error updating user:', err)
-    }
+      await api.patch(`/core/users/${userId}/`, { is_active: !cur })
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_active: !cur } : u))
+    } catch {}
   }
 
-  const handleCreated = (newUser) => {
-    setUsers(prev => [newUser, ...prev])
-  }
+  const initials = u => `${u.first_name?.[0] || ''}${u.last_name?.[0] || ''}`.toUpperCase() || u.email?.[0]?.toUpperCase() || '?'
 
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-xl font-bold text-synapsix-text">Usuarios</h1>
-          <p className="text-synapsix-muted text-sm mt-1">
-            Gestiona los usuarios de tu empresa. Crea, activa o desactiva cuentas.
-          </p>
+          <h2 className="text-xl font-black text-synapsix-text">Usuarios</h2>
+          <p className="text-sm text-synapsix-muted mt-0.5">Gestiona los usuarios de tu empresa</p>
         </div>
         <button onClick={() => setShowCreate(true)} className="btn-primary gap-2">
           <UserPlus className="w-4 h-4" /> Nuevo usuario
@@ -289,30 +275,30 @@ export default function UsersSection() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Total usuarios', value: users.length, icon: Users, color: 'text-synapsix-muted' },
-          { label: 'Activos', value: activeCount, icon: CheckCircle, color: 'text-emerald-400' },
-          { label: 'Inactivos', value: users.length - activeCount, icon: XCircle, color: 'text-red-400' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="glass rounded-xl p-4 flex items-center gap-3">
+          { label: 'Total', value: users.length, icon: Users, color: 'text-synapsix-muted', filter: 'all' },
+          { label: 'Activos', value: activeCount, icon: CheckCircle, color: 'text-emerald-400', filter: 'active' },
+          { label: 'Inactivos', value: inactiveCount, icon: XCircle, color: 'text-red-400', filter: 'inactive' },
+        ].map(({ label, value, icon: Icon, color, filter }) => (
+          <button key={label} onClick={() => setFilterActive(f => f === filter ? 'all' : filter)}
+            className={clsx(
+              'glass rounded-xl p-4 flex items-center gap-3 text-left transition-all border',
+              filterActive === filter ? 'border-synapsix-border-2' : 'border-synapsix-border hover:border-synapsix-border-2'
+            )}>
             <Icon className={clsx('w-5 h-5 flex-shrink-0', color)} />
             <div>
               <p className="text-lg font-bold text-synapsix-text leading-none">{loading ? '—' : value}</p>
               <p className="text-xs text-synapsix-muted mt-0.5">{label}</p>
             </div>
-          </div>
+          </button>
         ))}
       </div>
 
-      {/* Buscador */}
+      {/* Búsqueda */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-synapsix-muted" />
-        <input
-          type="text"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder="Buscar por nombre o correo..."
-          className="input-field pl-10 w-full"
-        />
+        <input type="text" value={query} onChange={e => setQuery(e.target.value)}
+          placeholder="Buscar por nombre, email o rol..."
+          className="input-field pl-10 w-full" />
         {query && (
           <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-synapsix-muted hover:text-synapsix-text-2">
             <X className="w-4 h-4" />
@@ -320,60 +306,61 @@ export default function UsersSection() {
         )}
       </div>
 
-      {/* Tabla */}
+      {/* Lista */}
       {loading && (
-        <div className="flex flex-col items-center gap-2 py-12">
+        <div className="flex flex-col items-center py-12 gap-2">
           <Loader2 className="w-8 h-8 text-synapsix-muted animate-spin" />
           <p className="text-synapsix-muted text-sm">Cargando usuarios...</p>
         </div>
       )}
-
       {error && (
-        <div className="flex flex-col items-center gap-3 py-8 text-center">
+        <div className="flex flex-col items-center py-8 gap-3">
           <AlertCircle className="w-8 h-8 text-red-400/60" />
           <p className="text-synapsix-muted text-sm">{error}</p>
-          <button onClick={fetchUsers} className="btn-secondary gap-2 text-sm">
-            <RefreshCw className="w-3.5 h-3.5" /> Reintentar
-          </button>
+          <button onClick={fetchAll} className="btn-secondary gap-2 text-sm"><RefreshCw className="w-3.5 h-3.5" /> Reintentar</button>
         </div>
       )}
-
       {!loading && !error && (
         <div className="space-y-2">
           {filtered.length === 0 ? (
-            <div className="text-center py-8 text-synapsix-muted text-sm">
-              {query ? 'Sin resultados para tu búsqueda.' : 'No hay usuarios. ¡Crea el primero!'}
+            <div className="text-center py-10 text-synapsix-muted text-sm">
+              {query ? 'Sin resultados.' : 'No hay usuarios. ¡Crea el primero!'}
             </div>
-          ) : filtered.map((u) => {
-            const initials = `${u.first_name?.[0] || ''}${u.last_name?.[0] || ''}`.toUpperCase() || u.email?.[0]?.toUpperCase() || '?'
-            const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email
-            const status = STATUS_BADGE[String(u.is_active)] || STATUS_BADGE.false
+          ) : filtered.map(u => {
+            const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email
+            const roleLabel = u.role ? (ROLE_LABELS[u.role.name] || u.role.name) : null
             return (
-              <div key={u.id} className="flex items-center gap-4 glass rounded-xl px-4 py-3 group hover:bg-synapsix-surface-2 transition-colors">
+              <div key={u.id}
+                className="flex items-center gap-3 glass rounded-xl px-4 py-3 group hover:bg-synapsix-surface-2 transition-colors cursor-pointer"
+                onClick={() => navigate(`/settings/users/${u.id}`)}>
                 {/* Avatar */}
                 <div className="w-9 h-9 rounded-xl bg-synapsix-red/15 border border-synapsix-red/25 flex items-center justify-center flex-shrink-0">
-                  <span className="text-synapsix-red text-sm font-bold">{initials}</span>
+                  <span className="text-synapsix-red text-sm font-bold">{initials(u)}</span>
                 </div>
-
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-semibold text-synapsix-text">{fullName}</p>
-                    <span className={clsx('text-[10px] px-1.5 py-0.5 rounded-full border', status.cls)}>
-                      {status.label}
+                    <p className="text-sm font-semibold text-synapsix-text">{name}</p>
+                    <span className={clsx(
+                      'text-[10px] px-1.5 py-0.5 rounded-full border',
+                      u.is_active
+                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                        : 'bg-red-500/10 border-red-500/20 text-red-400'
+                    )}>
+                      {u.is_active ? 'Activo' : 'Inactivo'}
                     </span>
+                    {roleLabel && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-synapsix-border bg-synapsix-surface-2 text-synapsix-muted-2">
+                        {roleLabel}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-synapsix-muted truncate">{u.email}</p>
-                  {u.role && (
-                    <p className="text-[10px] text-synapsix-muted-2 mt-0.5">{u.role.name}</p>
-                  )}
                 </div>
-
                 {/* Acciones */}
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
                   <button
-                    onClick={() => handleToggleActive(u.id, u.is_active)}
-                    title={u.is_active ? 'Desactivar' : 'Activar'}
+                    onClick={() => handleToggle(u.id, u.is_active)}
                     className={clsx(
                       'text-xs px-2.5 py-1 rounded-lg border transition-colors',
                       u.is_active
@@ -383,12 +370,9 @@ export default function UsersSection() {
                   >
                     {u.is_active ? 'Desactivar' : 'Activar'}
                   </button>
-                  <button
-                    onClick={() => navigate(`/settings/users/${u.id}`)}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-synapsix-muted hover:text-synapsix-text-2 hover:bg-synapsix-surface-3 transition-colors"
-                  >
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center text-synapsix-muted group-hover:text-synapsix-text-2 transition-colors">
                     <ChevronRight className="w-4 h-4" />
-                  </button>
+                  </div>
                 </div>
               </div>
             )
@@ -396,9 +380,12 @@ export default function UsersSection() {
         </div>
       )}
 
-      {/* Modal crear */}
       {showCreate && (
-        <CreateUserModal onClose={() => setShowCreate(false)} onCreated={handleCreated} />
+        <CreateUserModal
+          roles={roles}
+          onClose={() => setShowCreate(false)}
+          onCreated={u => { setUsers(prev => [u, ...prev]); setShowCreate(false) }}
+        />
       )}
     </div>
   )
