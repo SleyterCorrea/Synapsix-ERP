@@ -1,371 +1,314 @@
 /**
- * SYNAPSIX ERP — User Detail Page
- * Perfil completo del usuario con tabs: Permisos | Preferencias | Seguridad
+ * SYNAPSIX ERP — UserDetailPage v2
+ * Formulario completo de usuario: datos personales, rol, password, estado.
+ * Carga datos reales del backend y guarda con PATCH.
  */
-import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Save, CheckCircle, Camera, Mail,
-  ShieldCheck, Settings, Lock, Briefcase
+  ArrowLeft, Save, Loader2, AlertCircle, CheckCircle,
+  User, Mail, Lock, ShieldCheck, Trash2, Eye, EyeOff,
+  RefreshCw, Calendar, Clock,
 } from 'lucide-react'
 import clsx from 'clsx'
+import api from '@api/axios'
 import useSettingsStore from '@store/settingsStore'
-import PermissionMatrix from '@components/settings/PermissionMatrix'
-import { useModules } from '@hooks/useModules'
 
-const PROFILE_TYPES = [
-  {
-    value: 'admin',
-    label: 'Administrador',
-    description: 'Acceso completo al sistema. Puede gestionar usuarios y configuración.',
-    color: 'border-synapsix-red/30 bg-synapsix-red/10 text-synapsix-red-light',
-  },
-  {
-    value: 'employee',
-    label: 'Empleado',
-    description: 'Empleado interno. Accede a módulos según los permisos de su rol.',
-    color: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
-  },
-  {
-    value: 'portal',
-    label: 'Portal',
-    description: 'Usuario externo (cliente, proveedor). Acceso limitado a áreas específicas.',
-    color: 'border-blue-500/30 bg-blue-500/10 text-blue-400',
-  },
+const ROLE_OPTS = [
+  { value: '', label: 'Sin rol' },
+  { value: 'admin',        label: 'Administrador' },
+  { value: 'cajero',       label: 'Cajero' },
+  { value: 'mozo',         label: 'Mozo / Mesero' },
+  { value: 'inventarista', label: 'Inventarista' },
+  { value: 'viewer',       label: 'Solo Lectura' },
 ]
 
-const TABS = ['Permisos de Acceso', 'Preferencias', 'Seguridad']
-
-// Datos mock del usuario actual (admin)
-const MOCK_USER = {
-  id: '1',
-  first_name: 'Super',
-  last_name: 'Admin',
-  email: 'admin@synapsix.com',
-  profile_type: 'admin',
-  role: 'admin',
-  is_active: true,
-  last_login: new Date().toISOString(),
-  job_position: '',
-  department: '',
-  phone: '',
-  language: 'es',
-  timezone: 'America/Mexico_City',
+function Field({ label, required, error, children, hint }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium">
+        {label} {required && <span className="text-red-400">*</span>}
+      </label>
+      {children}
+      {hint && !error && <p className="text-[10px] text-synapsix-muted-2">{hint}</p>}
+      {error && <p className="text-xs text-red-400 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
+    </div>
+  )
 }
 
-const DEFAULT_PERMS = {
-  inventario: 'admin', facturacion: 'admin',
-  restaurante: 'admin', 'tienda-web': 'admin', reportes: 'admin',
+function Toggle({ label, desc, checked, onChange }) {
+  return (
+    <div className="flex items-center justify-between p-3 rounded-xl bg-synapsix-surface-2 border border-synapsix-border">
+      <div>
+        <p className="text-sm font-medium text-synapsix-text-2">{label}</p>
+        {desc && <p className="text-[10px] text-synapsix-muted">{desc}</p>}
+      </div>
+      <button type="button" onClick={() => onChange(!checked)}
+        className={clsx('relative rounded-full transition-colors flex-shrink-0', checked ? 'bg-emerald-500' : 'bg-synapsix-surface-3')}
+        style={{ width: 40, height: 22 }}>
+        <span className={clsx('absolute top-0.5 rounded-full bg-white shadow transition-all')}
+          style={{ width: 17, height: 17, left: checked ? 20 : 3 }} />
+      </button>
+    </div>
+  )
 }
 
 export default function UserDetailPage() {
-  const navigate = useNavigate()
-  const { id } = useParams()
+  const { id }    = useParams()
+  const navigate  = useNavigate()
   const { getBackgroundStyle } = useSettingsStore()
-  const { modules } = useModules()
-  const isNew = id === 'new'
 
-  const [activeTab, setActiveTab] = useState(0)
-  const [user, setUser] = useState(isNew ? {
+  const [user, setUser]     = useState(null)
+  const [roles, setRoles]   = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [errors, setErrors]   = useState({})
+  const [toast, setToast]     = useState(null)
+  const [showPwd, setShowPwd] = useState(false)
+
+  const [form, setForm] = useState({
     first_name: '', last_name: '', email: '',
-    profile_type: 'employee', role: 'cajero',
-    is_active: true, job_position: '', department: '', phone: '',
-    language: 'es', timezone: 'America/Mexico_City',
-  } : MOCK_USER)
-  const [permissions, setPermissions] = useState(DEFAULT_PERMS)
-  const [saved, setSaved] = useState(false)
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
+    role_id: '', is_active: true, is_staff: false,
+    password: '', password_confirm: '',
+  })
 
-  const initials = `${user.first_name?.[0] || '?'}${user.last_name?.[0] || ''}`.toUpperCase()
+  const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 4000) }
+  const setF = (k, v) => { setForm(f => ({ ...f, [k]: v })); setErrors(e => ({ ...e, [k]: undefined })) }
 
-  const handleSave = () => {
-    // TODO: conectar con API
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [userRes, rolesRes] = await Promise.all([
+        api.get(`/core/users/${id}/`),
+        api.get('/core/roles/'),
+      ])
+      const u = userRes.data
+      setUser(u)
+      setForm({
+        first_name:       u.first_name || '',
+        last_name:        u.last_name  || '',
+        email:            u.email      || '',
+        role_id:          u.role?.id   || '',
+        is_active:        u.is_active,
+        is_staff:         u.is_staff   || false,
+        password:         '',
+        password_confirm: '',
+      })
+      setRoles(Array.isArray(rolesRes.data) ? rolesRes.data : [])
+    } catch (e) {
+      showToast('error', e.response?.data?.detail || 'Error al cargar el usuario.')
+    } finally { setLoading(false) }
+  }, [id])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  const validate = () => {
+    const e = {}
+    if (!form.first_name.trim()) e.first_name = 'Requerido'
+    if (!form.email.trim())      e.email      = 'Requerido'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Email inválido'
+    if (form.password) {
+      if (form.password.length < 8) e.password = 'Mínimo 8 caracteres'
+      if (form.password !== form.password_confirm) e.password_confirm = 'No coinciden'
+    }
+    return e
   }
 
+  const handleSave = async () => {
+    const errs = validate()
+    if (Object.keys(errs).length) { setErrors(errs); return }
+    setSaving(true)
+    try {
+      const payload = {
+        first_name: form.first_name.trim(),
+        last_name:  form.last_name.trim(),
+        email:      form.email.trim().toLowerCase(),
+        role_id:    form.role_id || null,
+        is_active:  form.is_active,
+        is_staff:   form.is_staff,
+      }
+      if (form.password) {
+        payload.password         = form.password
+        payload.password_confirm = form.password_confirm
+      }
+      const r = await api.patch(`/core/users/${id}/`, payload)
+      setUser(r.data)
+      setForm(f => ({ ...f, password: '', password_confirm: '' }))
+      showToast('success', '¡Usuario actualizado correctamente!')
+    } catch (e) {
+      const d = e.response?.data || {}
+      if (typeof d === 'object' && !Array.isArray(d)) setErrors(d)
+      else showToast('error', 'Error al guardar.')
+    } finally { setSaving(false) }
+  }
+
+  const handleDeactivate = async () => {
+    if (!confirm('¿Desactivar este usuario?')) return
+    try {
+      await api.delete(`/core/users/${id}/`)
+      showToast('success', 'Usuario desactivado.')
+      setTimeout(() => navigate('/settings?section=users'), 1500)
+    } catch (e) {
+      showToast('error', e.response?.data?.detail || 'Error.')
+    }
+  }
+
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
+  const initials = user ? `${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase() || user.email?.[0]?.toUpperCase() : '?'
+
   return (
-    <div className="min-h-screen relative" style={{ background: getBackgroundStyle() }}>
+    <div className="min-h-screen" style={{ background: getBackgroundStyle() }}>
       <div className="absolute inset-0 noise-bg pointer-events-none" />
 
-      {/* Top bar */}
+      {/* Toast */}
+      {toast && (
+        <div className={clsx(
+          'fixed top-4 right-4 z-[9999] flex items-center gap-3 px-4 py-3 rounded-2xl border shadow-xl text-sm font-medium',
+          toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'
+        )}>
+          {toast.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Header */}
       <div className="relative border-b border-synapsix-border glass sticky top-0 z-40">
-        <div className="flex items-center justify-between gap-3 px-4 h-12">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/settings')}
-              className="flex items-center gap-1.5 text-synapsix-muted hover:text-synapsix-text-2 transition-colors text-sm"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span className="hidden sm:inline">Ajustes / Usuarios</span>
-            </button>
-            <div className="w-px h-4 bg-synapsix-border mx-1" />
-            <span className="text-synapsix-text font-semibold text-sm">
-              {isNew ? 'Nuevo Usuario' : `${user.first_name} ${user.last_name}`}
+        <div className="flex items-center gap-3 px-4 h-12">
+          <button onClick={() => navigate('/settings?section=users')}
+            className="flex items-center gap-1.5 text-synapsix-muted hover:text-synapsix-text-2 transition-colors text-sm">
+            <ArrowLeft className="w-4 h-4" /> Usuarios
+          </button>
+          <div className="w-px h-4 bg-synapsix-border mx-1" />
+          <span className="text-synapsix-text font-semibold text-sm truncate">
+            {loading ? 'Cargando...' : user?.email || id}
+          </span>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center h-[80vh]">
+          <Loader2 className="w-10 h-10 animate-spin text-synapsix-muted" />
+        </div>
+      ) : !user ? (
+        <div className="flex items-center justify-center h-[80vh] flex-col gap-3">
+          <AlertCircle className="w-10 h-10 text-red-400" />
+          <p className="text-synapsix-muted">Usuario no encontrado</p>
+          <button onClick={() => navigate('/settings?section=users')} className="btn-secondary text-sm">Volver</button>
+        </div>
+      ) : (
+        <div className="relative max-w-3xl mx-auto px-4 py-8 space-y-6">
+          {/* Avatar + info */}
+          <div className="glass rounded-2xl border border-synapsix-border p-5 flex items-center gap-5">
+            <div className="w-16 h-16 rounded-2xl bg-synapsix-red/15 border border-synapsix-red/25 flex items-center justify-center flex-shrink-0">
+              <span className="text-synapsix-red text-xl font-black">{initials}</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-synapsix-text">{user.full_name || user.email}</p>
+              <p className="text-sm text-synapsix-muted">{user.email}</p>
+              <div className="flex items-center gap-3 mt-2 text-[10px] text-synapsix-muted-2">
+                <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> Registro: {fmtDate(user.date_joined)}</span>
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Último login: {fmtDate(user.last_login)}</span>
+              </div>
+            </div>
+            <span className={clsx(
+              'text-xs px-2.5 py-1 rounded-full border font-semibold flex-shrink-0',
+              user.is_active ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'
+            )}>
+              {user.is_active ? 'Activo' : 'Inactivo'}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            {!isNew && (
-              <span className={clsx(
-                'badge border text-[11px]',
-                user.is_active ? 'badge-active' : 'badge-inactive'
-              )}>
-                {user.is_active ? <><CheckCircle className="w-3 h-3" /> Activo</> : 'Inactivo'}
-              </span>
-            )}
-            <button onClick={handleSave} className="btn-primary gap-2 h-8 text-xs">
-              <Save className="w-3.5 h-3.5" />
-              {saved ? '¡Guardado!' : 'Guardar'}
-            </button>
-          </div>
-        </div>
-      </div>
 
-      <div className="relative max-w-3xl mx-auto px-4 py-8 space-y-6">
-
-        {/* Header del usuario */}
-        <div className="bg-synapsix-surface border border-synapsix-border rounded-2xl p-6">
-          <div className="flex items-start gap-5">
-            {/* Avatar */}
-            <div className="relative flex-shrink-0">
-              <div className="w-20 h-20 rounded-2xl bg-synapsix-red/15 border-2 border-synapsix-red/30 flex items-center justify-center">
-                <span className="text-2xl font-bold text-synapsix-red">{initials}</span>
-              </div>
-              <button className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-lg bg-synapsix-surface-3 border border-synapsix-border flex items-center justify-center hover:border-synapsix-border-2 transition-colors">
-                <Camera className="w-3.5 h-3.5 text-synapsix-muted" />
-              </button>
-            </div>
-
-            {/* Info */}
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">Nombre</label>
-                <input
-                  value={user.first_name}
-                  onChange={e => setUser({ ...user, first_name: e.target.value })}
-                  className="input-field"
-                  placeholder="Nombre"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">Apellido</label>
-                <input
-                  value={user.last_name}
-                  onChange={e => setUser({ ...user, last_name: e.target.value })}
-                  className="input-field"
-                  placeholder="Apellido"
-                />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider flex items-center gap-1">
-                  <Mail className="w-3 h-3" /> Email
-                </label>
-                <input
-                  type="email"
-                  value={user.email}
-                  onChange={e => setUser({ ...user, email: e.target.value })}
-                  className="input-field"
-                  placeholder="usuario@empresa.com"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="bg-synapsix-surface border border-synapsix-border rounded-2xl overflow-hidden">
-          <div className="flex border-b border-synapsix-border">
-            {TABS.map((tab, i) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(i)}
-                className={clsx(
-                  'flex-1 py-3 text-sm font-medium transition-colors border-b-2',
-                  activeTab === i
-                    ? 'text-synapsix-red border-synapsix-red'
-                    : 'text-synapsix-muted border-transparent hover:text-synapsix-text-2'
-                )}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-
-          <div className="p-6">
-            {/* Tab 0: Permisos de Acceso */}
-            {activeTab === 0 && (
-              <div className="space-y-6">
-                {/* Tipo de usuario */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-synapsix-muted" />
-                    <h3 className="text-sm font-semibold text-synapsix-text-2 uppercase tracking-wider">
-                      Tipo de usuario
-                    </h3>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {PROFILE_TYPES.map((pt) => (
-                      <button
-                        key={pt.value}
-                        onClick={() => setUser({ ...user, profile_type: pt.value })}
-                        className={clsx(
-                          'text-left p-3.5 rounded-xl border-2 transition-all duration-150',
-                          user.profile_type === pt.value
-                            ? pt.color
-                            : 'border-synapsix-border bg-synapsix-surface-2 hover:border-synapsix-border-2'
-                        )}
-                      >
-                        <p className="font-semibold text-sm mb-1">{pt.label}</p>
-                        <p className={clsx(
-                          'text-xs leading-relaxed',
-                          user.profile_type === pt.value ? 'opacity-80' : 'text-synapsix-muted'
-                        )}>
-                          {pt.description}
-                        </p>
-                      </button>
+          {/* Datos personales */}
+          <div className="glass rounded-2xl border border-synapsix-border p-5 space-y-4">
+            <h3 className="text-sm font-bold text-synapsix-text-2 flex items-center gap-2"><User className="w-4 h-4 text-synapsix-muted" /> Datos personales</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Nombre" required error={errors.first_name}>
+                <input value={form.first_name} onChange={e => setF('first_name', e.target.value)}
+                  className={clsx('input-field', errors.first_name && 'border-red-500/50')} placeholder="Juan" />
+              </Field>
+              <Field label="Apellido">
+                <input value={form.last_name} onChange={e => setF('last_name', e.target.value)}
+                  className="input-field" placeholder="García" />
+              </Field>
+              <Field label="Correo electrónico" required error={errors.email} hint="Es el identificador de acceso">
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-synapsix-muted" />
+                  <input type="email" value={form.email} onChange={e => setF('email', e.target.value)}
+                    className={clsx('input-field pl-9', errors.email && 'border-red-500/50')}
+                    placeholder="usuario@empresa.com" />
+                </div>
+              </Field>
+              <Field label="Rol" error={errors.role_id} hint="Define los permisos de acceso">
+                <div className="relative">
+                  <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-synapsix-muted" />
+                  <select value={form.role_id} onChange={e => setF('role_id', e.target.value)}
+                    className={clsx('input-field pl-9 cursor-pointer', errors.role_id && 'border-red-500/50')}>
+                    <option value="">Sin rol</option>
+                    {roles.map(r => (
+                      <option key={r.id} value={r.id}>
+                        {ROLE_OPTS.find(o => o.value === r.name)?.label || r.name}
+                      </option>
                     ))}
-                  </div>
+                  </select>
                 </div>
+              </Field>
+            </div>
+          </div>
 
-                {/* Rol */}
-                {user.profile_type === 'employee' && (
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider flex items-center gap-1">
-                      <Briefcase className="w-3 h-3" /> Rol
-                    </label>
-                    <select
-                      value={user.role}
-                      onChange={e => setUser({ ...user, role: e.target.value })}
-                      className="input-field"
-                    >
-                      <option value="cajero">Cajero</option>
-                      <option value="mozo">Mozo / Mesero</option>
-                      <option value="inventarista">Inventarista</option>
-                      <option value="viewer">Solo Lectura</option>
-                    </select>
-                    <p className="text-xs text-synapsix-muted">
-                      Los permisos de módulo del rol seleccionado se aplican a este usuario.
-                      Puedes personalizarlos en Ajustes → Permisos.
-                    </p>
-                  </div>
-                )}
+          {/* Estado */}
+          <div className="glass rounded-2xl border border-synapsix-border p-5 space-y-3">
+            <h3 className="text-sm font-bold text-synapsix-text-2 flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-synapsix-muted" /> Estado y acceso</h3>
+            <Toggle label="Cuenta activa" desc="El usuario puede iniciar sesión"
+              checked={form.is_active} onChange={v => setF('is_active', v)} />
+            <Toggle label="Acceso de staff" desc="Puede acceder al panel de administración de Django"
+              checked={form.is_staff} onChange={v => setF('is_staff', v)} />
+          </div>
 
-                {/* Matriz de permisos (solo para admin tipo = employee) */}
-                {user.profile_type === 'employee' && (
-                  <div className="space-y-3">
-                    <h3 className="text-sm font-semibold text-synapsix-text-2 uppercase tracking-wider">
-                      Acceso a módulos
-                    </h3>
-                    <PermissionMatrix
-                      modules={modules}
-                      permissions={permissions}
-                      onChange={setPermissions}
-                    />
-                  </div>
-                )}
-
-                {user.profile_type === 'admin' && (
-                  <div className="bg-synapsix-red/8 border border-synapsix-red/20 rounded-xl px-4 py-3 text-sm text-synapsix-text-2">
-                    ⚡ Los administradores tienen acceso completo a todos los módulos del sistema.
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Tab 1: Preferencias */}
-            {activeTab === 1 && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">Puesto / Cargo</label>
-                    <input value={user.job_position} onChange={e => setUser({ ...user, job_position: e.target.value })}
-                      className="input-field" placeholder="Gerente, Cajero, etc." />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">Departamento</label>
-                    <input value={user.department} onChange={e => setUser({ ...user, department: e.target.value })}
-                      className="input-field" placeholder="Administración, Ventas, etc." />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">Teléfono</label>
-                    <input value={user.phone} onChange={e => setUser({ ...user, phone: e.target.value })}
-                      className="input-field" placeholder="+52 55 0000 0000" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">Idioma</label>
-                    <select value={user.language} onChange={e => setUser({ ...user, language: e.target.value })} className="input-field">
-                      <option value="es">Español</option>
-                      <option value="en">English</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">Zona horaria</label>
-                    <select value={user.timezone} onChange={e => setUser({ ...user, timezone: e.target.value })} className="input-field">
-                      <option value="America/Mexico_City">America/Mexico_City</option>
-                      <option value="America/Bogota">America/Bogota</option>
-                      <option value="America/Buenos_Aires">America/Buenos_Aires</option>
-                      <option value="America/Lima">America/Lima</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tab 2: Seguridad */}
-            {activeTab === 2 && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <Lock className="w-4 h-4 text-synapsix-muted" />
-                  <h3 className="text-sm font-semibold text-synapsix-text-2 uppercase tracking-wider">
-                    Cambiar contraseña
-                  </h3>
-                </div>
-                <div className="space-y-3 max-w-sm">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">Nueva contraseña</label>
-                    <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
-                      className="input-field" placeholder="Mínimo 8 caracteres" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">Confirmar contraseña</label>
-                    <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
-                      className="input-field" placeholder="Repite la contraseña" />
-                  </div>
-                  {newPassword && confirmPassword && newPassword !== confirmPassword && (
-                    <p className="text-xs text-red-400">Las contraseñas no coinciden.</p>
-                  )}
-                  <button
-                    disabled={!newPassword || newPassword !== confirmPassword}
-                    className="btn-primary w-full"
-                  >
-                    Actualizar contraseña
+          {/* Cambiar contraseña */}
+          <div className="glass rounded-2xl border border-synapsix-border p-5 space-y-4">
+            <h3 className="text-sm font-bold text-synapsix-text-2 flex items-center gap-2"><Lock className="w-4 h-4 text-synapsix-muted" /> Cambiar contraseña</h3>
+            <p className="text-xs text-synapsix-muted">Deja en blanco para no cambiar la contraseña actual.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Nueva contraseña" error={errors.password} hint="Mínimo 8 caracteres">
+                <div className="relative">
+                  <input type={showPwd ? 'text' : 'password'} value={form.password}
+                    onChange={e => setF('password', e.target.value)}
+                    className={clsx('input-field pr-9', errors.password && 'border-red-500/50')}
+                    placeholder="Nueva contraseña" />
+                  <button type="button" onClick={() => setShowPwd(!showPwd)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-synapsix-muted hover:text-synapsix-text-2">
+                    {showPwd ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
                 </div>
-                <div className="border-t border-synapsix-border pt-4 mt-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-synapsix-text">Estado del usuario</p>
-                      <p className="text-xs text-synapsix-muted mt-0.5">Desactivar impide el acceso sin eliminar los datos.</p>
-                    </div>
-                    <button
-                      onClick={() => setUser({ ...user, is_active: !user.is_active })}
-                      className={clsx(
-                        'px-4 py-2 rounded-xl text-sm font-medium border transition-all',
-                        user.is_active
-                          ? 'border-red-500/30 text-red-400 hover:bg-red-500/10'
-                          : 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10'
-                      )}
-                    >
-                      {user.is_active ? 'Desactivar usuario' : 'Activar usuario'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+              </Field>
+              <Field label="Confirmar contraseña" error={errors.password_confirm}>
+                <input type={showPwd ? 'text' : 'password'} value={form.password_confirm}
+                  onChange={e => setF('password_confirm', e.target.value)}
+                  className={clsx('input-field', errors.password_confirm && 'border-red-500/50')}
+                  placeholder="Repetir contraseña" />
+              </Field>
+            </div>
+          </div>
+
+          {/* Acciones */}
+          <div className="flex items-center justify-between gap-3">
+            <button onClick={handleDeactivate} disabled={!user.is_active}
+              className="flex items-center gap-2 text-sm text-red-400 hover:text-red-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+              <Trash2 className="w-4 h-4" />
+              {user.is_active ? 'Desactivar usuario' : 'Ya está desactivado'}
+            </button>
+            <div className="flex gap-2">
+              <button onClick={fetchData} className="btn-secondary text-sm gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5" /> Restablecer
+              </button>
+              <button onClick={handleSave} disabled={saving} className="btn-primary text-sm gap-2">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {saving ? 'Guardando...' : 'Guardar cambios'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

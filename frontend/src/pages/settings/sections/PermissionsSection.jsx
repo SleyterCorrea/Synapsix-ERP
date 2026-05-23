@@ -1,202 +1,260 @@
 /**
- * SYNAPSIX ERP — PermissionsSection
- * Configuración simplificada por campos: tipo de usuario + rol asignado.
- * La matriz de permisos por módulo se configura en cada módulo individual.
+ * SYNAPSIX ERP — PermissionsSection v2
+ * CRUD real de Roles con todos los permisos por módulo.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
-  ShieldCheck, Users, UserCog, Globe, Crown, Briefcase,
-  Info, ChevronRight, Loader2, AlertCircle,
+  ShieldCheck, Plus, Edit3, Trash2, Save, X,
+  Users, Loader2, AlertCircle, CheckCircle, ChevronDown,
 } from 'lucide-react'
 import clsx from 'clsx'
 import api from '@api/axios'
 
-const PROFILE_TYPES = [
-  {
-    id: 'admin',
-    icon: Crown,
-    label: 'Administrador',
-    description: 'Acceso completo. Puede gestionar usuarios, módulos y configuración del sistema.',
-    color: 'text-yellow-400',
-    bg: 'bg-yellow-500/10 border-yellow-500/30',
-  },
-  {
-    id: 'employee',
-    icon: Briefcase,
-    label: 'Empleado',
-    description: 'Acceso a los módulos asignados según su rol. Sin acceso a configuración general.',
-    color: 'text-blue-400',
-    bg: 'bg-blue-500/10 border-blue-500/30',
-  },
-  {
-    id: 'portal',
-    icon: Globe,
-    label: 'Portal / Cliente',
-    description: 'Acceso limitado a su panel personal. Sin visibilidad de módulos internos.',
-    color: 'text-purple-400',
-    bg: 'bg-purple-500/10 border-purple-500/30',
-  },
+const ROLE_OPTIONS = [
+  { value: 'admin',         label: 'Administrador' },
+  { value: 'cajero',        label: 'Cajero' },
+  { value: 'mozo',          label: 'Mozo / Mesero' },
+  { value: 'inventarista',  label: 'Inventarista' },
+  { value: 'viewer',        label: 'Solo Lectura' },
 ]
 
-export default function PermissionsSection() {
-  const [users, setUsers] = useState([])
-  const [roles, setRoles] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState({})
-  const [error, setError] = useState(null)
+const PERMS = [
+  { key: 'can_access_admin',       label: 'Panel de Administración', desc: 'Ver y editar configuración del sistema', icon: '⚙️' },
+  { key: 'can_manage_users',       label: 'Gestionar Usuarios',      desc: 'Crear, editar y desactivar usuarios',    icon: '👥' },
+  { key: 'can_access_inventory',   label: 'Módulo Inventario',       desc: 'Ver y gestionar productos y stock',      icon: '📦' },
+  { key: 'can_access_billing',     label: 'Módulo Facturación',      desc: 'Emitir y ver facturas',                  icon: '🧾' },
+  { key: 'can_access_restaurant',  label: 'Módulo Restaurante',      desc: 'Mesas, comandas y cocina',               icon: '🍽️' },
+]
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [usersRes, rolesRes] = await Promise.all([
-          api.get('/core/users/'),
-          api.get('/core/roles/').catch(() => ({ data: [] })),
-        ])
-        const userList = Array.isArray(usersRes.data) ? usersRes.data : usersRes.data?.results || []
-        setUsers(userList)
-        setRoles(Array.isArray(rolesRes.data) ? rolesRes.data : [])
-      } catch (err) {
-        setError('Error al cargar usuarios.')
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchData()
-  }, [])
+const EMPTY_FORM = {
+  name: '', description: '',
+  can_access_admin: false, can_manage_users: false,
+  can_access_inventory: false, can_access_billing: false,
+  can_access_restaurant: false,
+}
 
-  const handleRoleChange = async (userId, roleId) => {
-    setSaving(s => ({ ...s, [userId]: true }))
-    try {
-      await api.patch(`/core/users/${userId}/`, { role_id: roleId || null })
-      setUsers(prev => prev.map(u => {
-        if (u.id !== userId) return u
-        const role = roles.find(r => r.id === roleId)
-        return { ...u, role: role || null }
-      }))
-    } catch (err) {
-      console.error('Error updating role:', err)
-    } finally {
-      setSaving(s => ({ ...s, [userId]: false }))
-    }
-  }
+function Toggle({ checked, onChange, disabled }) {
+  return (
+    <button type="button" onClick={() => !disabled && onChange(!checked)} disabled={disabled}
+      className={clsx(
+        'relative flex-shrink-0 transition-colors rounded-full',
+        checked ? 'bg-emerald-500' : 'bg-synapsix-surface-3',
+        disabled && 'opacity-40 cursor-not-allowed'
+      )}
+      style={{ width: 40, height: 22 }}>
+      <span className={clsx(
+        'absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all',
+        checked ? 'left-[18px]' : 'left-[3px]'
+      )} style={{ width: 17, height: 17 }} />
+    </button>
+  )
+}
+
+function RoleForm({ initial, onSave, onCancel, saving, errors }) {
+  const [form, setForm] = useState(initial || { ...EMPTY_FORM })
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const isEdit = !!initial?.id
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div>
-        <h1 className="text-xl font-bold text-synapsix-text">Acceso y Permisos</h1>
-        <p className="text-synapsix-muted text-sm mt-1">
-          Asigna roles a los usuarios. Los permisos detallados por módulo se configuran en cada módulo.
-        </p>
+    <div className="glass rounded-2xl border border-synapsix-border-2 p-5 space-y-5">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-bold text-synapsix-text">{isEdit ? `Editar rol: ${initial.name}` : 'Nuevo Rol'}</p>
+        <button onClick={onCancel} className="text-synapsix-muted hover:text-synapsix-text-2 p-1 rounded-lg hover:bg-synapsix-surface-2"><X className="w-4 h-4" /></button>
       </div>
 
-      {/* Tipos de perfil (informativo) */}
-      <section className="space-y-3">
-        <div className="flex items-center gap-2 pb-2 border-b border-synapsix-border">
-          <ShieldCheck className="w-4 h-4 text-synapsix-muted" />
-          <h2 className="text-sm font-semibold text-synapsix-text-2 uppercase tracking-wider">Tipos de perfil</h2>
+      {errors?.general && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+          <AlertCircle className="w-4 h-4" /> {errors.general}
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {PROFILE_TYPES.map(({ id, icon: Icon, label, description, color, bg }) => (
-            <div key={id} className={clsx('rounded-xl border p-4 space-y-2', bg)}>
-              <div className="flex items-center gap-2">
-                <Icon className={clsx('w-4 h-4', color)} />
-                <span className="text-sm font-semibold text-synapsix-text">{label}</span>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium">Tipo de Rol *</label>
+          <select value={form.name} onChange={e => set('name', e.target.value)}
+            className={clsx('input-field cursor-pointer', errors?.name && 'border-red-500/50')}
+            disabled={isEdit}>
+            <option value="">Seleccionar...</option>
+            {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+          {errors?.name && <p className="text-xs text-red-400">{errors.name}</p>}
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium">Descripción</label>
+          <input value={form.description} onChange={e => set('description', e.target.value)}
+            className="input-field" placeholder="Ej: Acceso de mostrador..." />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <p className="text-xs text-synapsix-muted uppercase tracking-wider font-semibold">Permisos</p>
+        <div className="space-y-2">
+          {PERMS.map(p => (
+            <div key={p.key} className="flex items-center justify-between p-3 rounded-xl bg-synapsix-surface-2 border border-synapsix-border">
+              <div className="flex items-center gap-3">
+                <span className="text-lg">{p.icon}</span>
+                <div>
+                  <p className="text-sm font-medium text-synapsix-text-2">{p.label}</p>
+                  <p className="text-[10px] text-synapsix-muted">{p.desc}</p>
+                </div>
               </div>
-              <p className="text-xs text-synapsix-muted leading-relaxed">{description}</p>
+              <Toggle checked={!!form[p.key]} onChange={v => set(p.key, v)} />
             </div>
           ))}
         </div>
-      </section>
+      </div>
 
-      {/* Asignación de roles */}
-      <section className="space-y-3">
-        <div className="flex items-center gap-2 pb-2 border-b border-synapsix-border">
-          <UserCog className="w-4 h-4 text-synapsix-muted" />
-          <h2 className="text-sm font-semibold text-synapsix-text-2 uppercase tracking-wider">Roles por usuario</h2>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-secondary text-sm">Cancelar</button>
+        <button onClick={() => onSave(form)} disabled={saving || !form.name}
+          className="btn-primary text-sm gap-2">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? 'Guardando...' : (isEdit ? 'Actualizar Rol' : 'Crear Rol')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function PermissionsSection() {
+  const [roles, setRoles]       = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [saving, setSaving]     = useState(false)
+  const [errors, setErrors]     = useState({})
+  const [toast, setToast]       = useState(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [editRole, setEditRole] = useState(null)
+
+  const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 4000) }
+
+  const fetchRoles = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await api.get('/core/roles/')
+      setRoles(Array.isArray(r.data) ? r.data : [])
+    } catch { showToast('error', 'Error al cargar roles.') }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { fetchRoles() }, [fetchRoles])
+
+  const handleCreate = async (form) => {
+    setSaving(true); setErrors({})
+    try {
+      const r = await api.post('/core/roles/', form)
+      setRoles(prev => [...prev, r.data])
+      setShowCreate(false)
+      showToast('success', `Rol "${form.name}" creado.`)
+    } catch (e) {
+      const d = e.response?.data || {}
+      setErrors(typeof d === 'object' ? d : { general: 'Error al crear.' })
+    } finally { setSaving(false) }
+  }
+
+  const handleUpdate = async (form) => {
+    setSaving(true); setErrors({})
+    try {
+      const r = await api.patch(`/core/roles/${editRole.id}/`, form)
+      setRoles(prev => prev.map(ro => ro.id === editRole.id ? r.data : ro))
+      setEditRole(null)
+      showToast('success', 'Rol actualizado.')
+    } catch (e) {
+      const d = e.response?.data || {}
+      setErrors(typeof d === 'object' ? d : { general: 'Error al actualizar.' })
+    } finally { setSaving(false) }
+  }
+
+  const handleDelete = async (role) => {
+    if (role.user_count > 0) {
+      showToast('error', `No se puede eliminar: ${role.user_count} usuario(s) asignado(s).`)
+      return
+    }
+    if (!confirm(`¿Eliminar el rol "${role.name}"?`)) return
+    try {
+      await api.delete(`/core/roles/${role.id}/`)
+      setRoles(prev => prev.filter(r => r.id !== role.id))
+      showToast('success', 'Rol eliminado.')
+    } catch (e) {
+      showToast('error', e.response?.data?.detail || 'Error al eliminar.')
+    }
+  }
+
+  const roleName = (r) => ROLE_OPTIONS.find(o => o.value === r.name)?.label || r.name
+
+  return (
+    <div className="space-y-6">
+      {toast && (
+        <div className={clsx(
+          'fixed top-4 right-4 z-[9999] flex items-center gap-3 px-4 py-3 rounded-2xl border shadow-xl text-sm font-medium',
+          toast.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'
+        )}>
+          {toast.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+          {toast.msg}
         </div>
+      )}
 
-        {/* Nota informativa */}
-        <div className="flex items-start gap-2 p-3 rounded-xl bg-blue-500/5 border border-blue-500/15 text-xs text-synapsix-muted">
-          <Info className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
-          <span>
-            Los roles controlan el acceso a cada módulo. Los permisos granulares (crear, editar, eliminar)
-            se configurarán en cada módulo a medida que se implementen.
-          </span>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-lg font-black text-synapsix-text flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-synapsix-muted" /> Roles y Permisos</h2>
+          <p className="text-sm text-synapsix-muted mt-0.5">Define qué puede hacer cada tipo de usuario</p>
         </div>
+        <button onClick={() => { setShowCreate(true); setEditRole(null) }} className="btn-primary gap-2 text-sm">
+          <Plus className="w-4 h-4" /> Nuevo Rol
+        </button>
+      </div>
 
-        {loading && (
-          <div className="flex items-center justify-center gap-2 py-8 text-synapsix-muted text-sm">
-            <Loader2 className="w-5 h-5 animate-spin" /> Cargando...
-          </div>
-        )}
+      {showCreate && !editRole && (
+        <RoleForm onSave={handleCreate} onCancel={() => setShowCreate(false)} saving={saving} errors={errors} />
+      )}
 
-        {error && (
-          <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
-            <AlertCircle className="w-4 h-4" /> {error}
-          </div>
-        )}
-
-        {!loading && !error && (
-          <div className="space-y-2">
-            {users.length === 0 && (
-              <p className="text-center text-synapsix-muted text-sm py-8">
-                No hay usuarios. Ve a Usuarios para crear el primero.
-              </p>
-            )}
-            {users.map(u => {
-              const initials = `${u.first_name?.[0] || ''}${u.last_name?.[0] || ''}`.toUpperCase() || '?'
-              const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email
-              const isSaving = saving[u.id]
-              return (
-                <div key={u.id} className="flex items-center gap-4 glass rounded-xl px-4 py-3">
-                  {/* Avatar */}
-                  <div className="w-9 h-9 rounded-xl bg-synapsix-red/15 border border-synapsix-red/25 flex items-center justify-center flex-shrink-0">
-                    <span className="text-synapsix-red text-sm font-bold">{initials}</span>
-                  </div>
-
-                  {/* Nombre */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-synapsix-text">{fullName}</p>
-                    <p className="text-xs text-synapsix-muted truncate">{u.email}</p>
-                  </div>
-
-                  {/* Selector de rol */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {isSaving && <Loader2 className="w-3.5 h-3.5 text-synapsix-muted animate-spin" />}
-                    {roles.length > 0 ? (
-                      <select
-                        value={u.role?.id || ''}
-                        onChange={e => handleRoleChange(u.id, e.target.value)}
-                        disabled={isSaving}
-                        className="text-xs bg-synapsix-surface-2 border border-synapsix-border rounded-lg px-2 py-1.5 text-synapsix-text-2 outline-none focus:border-synapsix-border-2 disabled:opacity-50"
-                      >
-                        <option value="">Sin rol</option>
-                        {roles.map(r => (
-                          <option key={r.id} value={r.id}>{r.name}</option>
+      {loading ? (
+        <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-synapsix-muted" /></div>
+      ) : roles.length === 0 ? (
+        <div className="text-center py-12 space-y-3">
+          <ShieldCheck className="w-12 h-12 text-synapsix-muted opacity-20 mx-auto" />
+          <p className="text-synapsix-muted">Sin roles configurados</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {roles.map(role => (
+            <div key={role.id}>
+              {editRole?.id === role.id ? (
+                <RoleForm initial={role} onSave={handleUpdate} onCancel={() => setEditRole(null)} saving={saving} errors={errors} />
+              ) : (
+                <div className="glass rounded-2xl border border-synapsix-border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <p className="text-sm font-bold text-synapsix-text">{roleName(role)}</p>
+                        <span className="flex items-center gap-1 text-xs text-synapsix-muted bg-synapsix-surface-2 border border-synapsix-border px-2 py-0.5 rounded-full">
+                          <Users className="w-3 h-3" /> {role.user_count} usuarios
+                        </span>
+                      </div>
+                      {role.description && <p className="text-xs text-synapsix-muted mt-1">{role.description}</p>}
+                      <div className="flex flex-wrap gap-1.5 mt-3">
+                        {PERMS.map(p => (
+                          <span key={p.key} className={clsx(
+                            'text-[10px] px-2 py-1 rounded-lg border font-medium',
+                            role[p.key]
+                              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                              : 'bg-synapsix-surface-2 border-synapsix-border text-synapsix-muted-2 line-through'
+                          )}>
+                            {p.icon} {p.label}
+                          </span>
                         ))}
-                      </select>
-                    ) : (
-                      <span className="text-xs text-synapsix-muted italic">
-                        {u.role?.name || 'Sin rol'}
-                      </span>
-                    )}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 flex-shrink-0">
+                      <button onClick={() => setEditRole(role)} className="w-7 h-7 rounded-lg flex items-center justify-center text-synapsix-muted hover:text-synapsix-text-2 hover:bg-synapsix-surface-2 transition-colors"><Edit3 className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => handleDelete(role)} className="w-7 h-7 rounded-lg flex items-center justify-center text-synapsix-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
                   </div>
                 </div>
-              )
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* Próximamente */}
-      <div className="rounded-xl border border-dashed border-synapsix-border p-6 text-center space-y-2">
-        <ChevronRight className="w-6 h-6 text-synapsix-muted mx-auto" />
-        <p className="text-sm font-medium text-synapsix-text-2">Permisos por módulo</p>
-        <p className="text-xs text-synapsix-muted">
-          Al implementar cada módulo (Restaurante, Inventario, etc.) se configurarán
-          los permisos específicos (ver, crear, editar, eliminar) por rol.
-        </p>
-      </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

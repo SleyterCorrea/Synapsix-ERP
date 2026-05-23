@@ -1,65 +1,45 @@
 /**
- * SYNAPSIX ERP — Notification Store
- * Notificaciones con timestamps reales para timeAgo dinámico.
+ * SYNAPSIX ERP — Notification Store v2
+ * Persistencia con zustand/persist + lógica de unreadCount.
  */
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
-const now = () => Date.now()
-const minsAgo = (m) => now() - m * 60 * 1000
-const hrsAgo  = (h) => now() - h * 3600 * 1000
+const useNotificationStore = create(
+  persist(
+    (set, get) => ({
+      notifications: [],
 
-const INITIAL = [
-  {
-    id: 1, type: 'info', read: false,
-    title: 'Bienvenido al sistema',
-    body:  'Synapsix ERP v0.1.0 está listo. ¡Configura tu empresa!',
-    ts: now(),
-  },
-  {
-    id: 2, type: 'success', read: false,
-    title: 'Módulos cargados',
-    body:  '10 módulos registrados correctamente en el catálogo.',
-    ts: minsAgo(2),
-  },
-  {
-    id: 3, type: 'warning', read: true,
-    title: 'Configura tu empresa',
-    body:  'Ve a Ajustes → General para personalizar el sistema con tu branding.',
-    ts: minsAgo(5),
-  },
-  {
-    id: 4, type: 'info', read: true,
-    title: 'Nuevos módulos disponibles',
-    body:  'Calendario, Tareas y Hoja de Horas ya están activos.',
-    ts: hrsAgo(1),
-  },
-]
+      get unreadCount() {
+        return get().notifications.filter(n => !n.read).length
+      },
 
-const useNotificationStore = create((set, get) => ({
-  notifications: INITIAL,
-  isOpen: false,
+      addNotification: (notif) => set(s => ({
+        // Evitar duplicados por id
+        notifications: s.notifications.find(n => n.id === notif.id)
+          ? s.notifications
+          : [notif, ...s.notifications].slice(0, 100), // máx 100
+      })),
 
-  toggle: () => set(s => ({ isOpen: !s.isOpen })),
-  close:  () => set({ isOpen: false }),
+      markRead: (id) => set(s => ({
+        notifications: s.notifications.map(n => n.id === id ? { ...n, read: true } : n),
+      })),
 
-  markRead: (id) => set(s => ({
-    notifications: s.notifications.map(n => n.id === id ? { ...n, read: true } : n),
-  })),
+      markAllRead: () => set(s => ({
+        notifications: s.notifications.map(n => ({ ...n, read: true })),
+      })),
 
-  markAllRead: () => set(s => ({
-    notifications: s.notifications.map(n => ({ ...n, read: true })),
-  })),
+      removeNotification: (id) => set(s => ({
+        notifications: s.notifications.filter(n => n.id !== id),
+      })),
 
-  add: (notification) => set(s => ({
-    notifications: [
-      { id: Date.now(), read: false, ts: Date.now(), ...notification },
-      ...s.notifications,
-    ],
-  })),
-
-  remove: (id) => set(s => ({
-    notifications: s.notifications.filter(n => n.id !== id),
-  })),
-}))
+      clearAll: () => set({ notifications: [] }),
+    }),
+    {
+      name: 'synapsix-notifications-v2',
+      partialize: (s) => ({ notifications: s.notifications.slice(0, 50) }),
+    }
+  )
+)
 
 export default useNotificationStore

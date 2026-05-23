@@ -1,241 +1,234 @@
 /**
- * SYNAPSIX ERP — General Settings Section (con Branding White-Label)
+ * SYNAPSIX ERP — GeneralSection v2
+ * Ajustes de empresa que se guardan realmente en backend.
  */
-import { useState, useRef } from 'react'
-import { Building2, Save, Upload, X, Palette, RefreshCw } from 'lucide-react'
-import { useAuth } from '@hooks/useAuth'
-import useTenantStore from '@store/tenantStore'
+import { useState, useEffect } from 'react'
+import {
+  Building2, Globe, Phone, Mail, CreditCard, Clock,
+  Save, Loader2, AlertCircle, CheckCircle, Upload, X,
+} from 'lucide-react'
+import clsx from 'clsx'
+import api from '@api/axios'
 
-const PRESET_COLORS = [
-  { label: 'Synapsix Red',  hex: '#C0392B' },
-  { label: 'Azul marino',  hex: '#1B4F72' },
-  { label: 'Naranja',      hex: '#D35400' },
-  { label: 'Verde',        hex: '#1E8449' },
-  { label: 'Morado',       hex: '#6C3483' },
-  { label: 'Teal',         hex: '#148F77' },
-  { label: 'Gris antrac.', hex: '#2C3E50' },
-  { label: 'Dorado',       hex: '#B7950B' },
+const CURRENCIES = ['MXN', 'USD', 'EUR', 'COP', 'PEN', 'CLP', 'ARS', 'VES']
+const TIMEZONES  = [
+  { value: 'America/Mexico_City', label: 'Ciudad de México (UTC-6)' },
+  { value: 'America/Bogota',      label: 'Bogotá (UTC-5)' },
+  { value: 'America/Lima',        label: 'Lima (UTC-5)' },
+  { value: 'America/Santiago',    label: 'Santiago (UTC-4)' },
+  { value: 'America/Buenos_Aires',label: 'Buenos Aires (UTC-3)' },
+  { value: 'America/New_York',    label: 'Nueva York (UTC-5)' },
+  { value: 'Europe/Madrid',       label: 'Madrid (UTC+1)' },
+  { value: 'UTC',                 label: 'UTC' },
 ]
 
+function Field({ label, error, children, required, hint }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs text-synapsix-muted uppercase tracking-wider font-medium flex items-center gap-1">
+        {label} {required && <span className="text-red-400">*</span>}
+      </label>
+      {children}
+      {hint && !error && <p className="text-[10px] text-synapsix-muted-2">{hint}</p>}
+      {error && <p className="text-xs text-red-400 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
+    </div>
+  )
+}
+
 export default function GeneralSection() {
-  const { user } = useAuth()
-  const company = user?.company
-  const {
-    companyName, companyTagline, logoBase64,
-    primaryColor, setCompanyName, setCompanyTagline,
-    setLogo, clearLogo, setPrimaryColor, resetBranding,
-  } = useTenantStore()
+  const [form, setForm]       = useState(null)
+  const [logoFile, setLogoFile] = useState(null)
+  const [logoPreview, setLogoPreview] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [errors, setErrors]   = useState({})
+  const [toast, setToast]     = useState(null)
 
-  const logoRef = useRef(null)
-  const [saved, setSaved] = useState(false)
-  const [localColor, setLocalColor] = useState(primaryColor)
+  const showToast = (type, msg) => {
+    setToast({ type, msg })
+    setTimeout(() => setToast(null), 4000)
+  }
 
-  const [form, setForm] = useState({
-    tax_id: company?.tax_id || '',
-    email: company?.email || '',
-    phone: company?.phone || '',
-    currency: company?.currency || 'MXN',
-    timezone: company?.timezone || 'America/Mexico_City',
-  })
+  useEffect(() => {
+    api.get('/core/company/').then(r => {
+      setForm(r.data)
+      setLogoPreview(r.data.logo_url)
+    }).catch(() => {
+      showToast('error', 'No se pudieron cargar los ajustes.')
+    }).finally(() => setLoading(false))
+  }, [])
 
-  const handleLogoUpload = (e) => {
+  const set = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }))
+    setErrors(e => ({ ...e, [k]: undefined }))
+  }
+
+  const handleLogo = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => setLogo(ev.target.result)
-    reader.readAsDataURL(file)
-    e.target.value = ''
+    if (!['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'].includes(file.type)) {
+      setErrors(er => ({ ...er, logo: 'Solo PNG, JPG, SVG o WebP.' }))
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setErrors(er => ({ ...er, logo: 'Máximo 2 MB.' }))
+      return
+    }
+    setLogoFile(file)
+    setLogoPreview(URL.createObjectURL(file))
+    setErrors(er => ({ ...er, logo: undefined }))
   }
 
-  const handleColorChange = (hex) => {
-    setLocalColor(hex)
-    setPrimaryColor(hex)
+  const validate = () => {
+    const e = {}
+    if (!form?.name?.trim())  e.name  = 'Requerido'
+    if (form?.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Email inválido'
+    if (form?.website && !/^https?:\/\//.test(form.website)) e.website = 'Debe comenzar con https://'
+    return e
   }
 
-  const handleSave = () => {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  const handleSave = async () => {
+    const errs = validate()
+    if (Object.keys(errs).length) { setErrors(errs); return }
+    setSaving(true)
+    try {
+      const fd = new FormData()
+      const fields = ['name', 'tax_id', 'address', 'phone', 'email', 'website', 'currency', 'timezone']
+      fields.forEach(f => { if (form[f] !== undefined) fd.append(f, form[f]) })
+      if (logoFile) fd.append('logo', logoFile)
+      const r = await api.patch('/core/company/', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setForm(r.data)
+      setLogoPreview(r.data.logo_url)
+      setLogoFile(null)
+      showToast('success', '¡Ajustes guardados correctamente!')
+    } catch (err) {
+      const apiErrors = err.response?.data || {}
+      if (typeof apiErrors === 'object') setErrors(apiErrors)
+      else showToast('error', 'Error al guardar.')
+    } finally { setSaving(false) }
   }
+
+  if (loading) return <div className="flex justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-synapsix-muted" /></div>
+  if (!form)   return <p className="text-red-400 text-sm">No se pudo cargar la configuración.</p>
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-8">
+      {/* Toast */}
+      {toast && (
+        <div className={clsx(
+          'fixed top-4 right-4 z-[9999] flex items-center gap-3 px-4 py-3 rounded-2xl border shadow-xl text-sm font-medium',
+          toast.type === 'success'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+            : 'bg-red-500/10 border-red-500/30 text-red-400'
+        )}>
+          {toast.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+          {toast.msg}
+        </div>
+      )}
+
       <div>
-        <h1 className="text-xl font-bold text-synapsix-text">Ajustes generales</h1>
-        <p className="text-synapsix-muted text-sm mt-1">
-          Configura el nombre, logo y colores de la empresa. Estos cambios se aplican a toda la interfaz.
-        </p>
+        <h2 className="text-lg font-black text-synapsix-text">Ajustes Generales</h2>
+        <p className="text-sm text-synapsix-muted mt-0.5">Información de tu empresa y preferencias del sistema</p>
       </div>
 
-      {/* ── BRANDING ─────────────────────────────────────────────── */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between pb-2 border-b border-synapsix-border">
-          <div className="flex items-center gap-2">
-            <Palette className="w-4 h-4 text-synapsix-muted" />
-            <h2 className="text-sm font-semibold text-synapsix-text-2 uppercase tracking-wider">
-              Identidad de marca
-            </h2>
+      {/* Logo */}
+      <div className="glass rounded-2xl border border-synapsix-border p-5 space-y-4">
+        <h3 className="text-sm font-bold text-synapsix-text-2">Logo de la empresa</h3>
+        <div className="flex items-center gap-5">
+          <div className="w-20 h-20 rounded-2xl border border-synapsix-border bg-synapsix-surface-2 flex items-center justify-center overflow-hidden">
+            {logoPreview
+              ? <img src={logoPreview} alt="Logo" className="w-full h-full object-contain p-2" />
+              : <Building2 className="w-8 h-8 text-synapsix-muted opacity-40" />
+            }
           </div>
-          <button
-            onClick={resetBranding}
-            className="flex items-center gap-1.5 text-xs text-synapsix-muted hover:text-synapsix-text-2 transition-colors"
-          >
-            <RefreshCw className="w-3 h-3" /> Restablecer Synapsix
-          </button>
-        </div>
-
-        <div className="flex items-start gap-6">
-          {/* Logo */}
-          <div className="flex flex-col items-center gap-2">
-            <div
-              className="w-20 h-20 rounded-2xl border-2 border-dashed border-synapsix-border flex items-center justify-center overflow-hidden cursor-pointer hover:border-synapsix-border-2 transition-colors relative group"
-              onClick={() => !logoBase64 && logoRef.current?.click()}
-              style={{ backgroundColor: logoBase64 ? 'transparent' : `rgba(${localColor.replace('#','').match(/.{2}/g).map(h=>parseInt(h,16)).join(',')},0.1)` }}
-            >
-              {logoBase64 ? (
-                <>
-                  <img src={logoBase64} alt="Logo" className="w-full h-full object-contain p-1" />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
-                    <button onClick={(e) => { e.stopPropagation(); logoRef.current?.click() }} className="p-1 text-white hover:text-white/80">
-                      <Upload className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); clearLogo() }} className="p-1 text-white hover:text-red-300">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="text-center">
-                  <Upload className="w-6 h-6 text-synapsix-muted mx-auto mb-1" />
-                  <span className="text-[10px] text-synapsix-muted">Logo</span>
-                </div>
-              )}
-            </div>
-            <span className="text-[10px] text-synapsix-muted-2 text-center">PNG, SVG recomendado</span>
-            <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
-          </div>
-
-          {/* Nombre y tagline */}
-          <div className="flex-1 space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">
-                Nombre de la empresa
-              </label>
-              <input
-                value={companyName}
-                onChange={e => setCompanyName(e.target.value)}
-                className="input-field"
-                placeholder="Mi Empresa"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">
-                Tagline / Sistema
-              </label>
-              <input
-                value={companyTagline}
-                onChange={e => setCompanyTagline(e.target.value)}
-                className="input-field"
-                placeholder="ERP · Restaurante · etc."
-              />
-            </div>
+          <div className="space-y-2">
+            <label className="btn-secondary cursor-pointer gap-2 text-sm inline-flex items-center">
+              <Upload className="w-4 h-4" /> Subir logo
+              <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" onChange={handleLogo} className="hidden" />
+            </label>
+            {logoPreview && (
+              <button onClick={() => { setLogoFile(null); setLogoPreview(null) }}
+                className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300">
+                <X className="w-3 h-3" /> Quitar logo
+              </button>
+            )}
+            <p className="text-[10px] text-synapsix-muted">PNG, JPG, SVG o WebP — máx. 2 MB</p>
+            {errors.logo && <p className="text-xs text-red-400">{errors.logo}</p>}
           </div>
         </div>
+      </div>
 
-        {/* Vista previa del header */}
-        <div className="rounded-xl border border-synapsix-border bg-synapsix-surface-2 p-3">
-          <p className="text-[10px] text-synapsix-muted-2 uppercase tracking-wider mb-2">Vista previa del header</p>
-          <div className="flex items-center gap-2 bg-synapsix-surface rounded-lg px-3 py-2 border border-synapsix-border">
-            <div
-              className="w-7 h-7 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0"
-              style={{ backgroundColor: `${localColor}20`, border: `1px solid ${localColor}50` }}
-            >
-              {logoBase64
-                ? <img src={logoBase64} alt="" className="w-full h-full object-contain p-0.5" />
-                : <span className="text-sm font-black" style={{ color: localColor }}>{companyName?.[0] || 'S'}</span>
-              }
-            </div>
-            <span className="text-sm font-bold text-synapsix-text">{companyName || 'Mi Empresa'}</span>
-            <span className="text-xs text-synapsix-muted font-mono">{companyTagline || 'ERP'}</span>
-          </div>
-        </div>
-      </section>
-
-      {/* ── COLOR PRIMARIO ──────────────────────────────────────── */}
-      <section className="space-y-4">
-        <div className="flex items-center gap-2 pb-2 border-b border-synapsix-border">
-          <div className="w-4 h-4 rounded-full" style={{ backgroundColor: localColor }} />
-          <h2 className="text-sm font-semibold text-synapsix-text-2 uppercase tracking-wider">
-            Color primario
-          </h2>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {PRESET_COLORS.map(c => (
-            <button
-              key={c.hex}
-              onClick={() => handleColorChange(c.hex)}
-              title={c.label}
-              className="w-8 h-8 rounded-xl transition-transform hover:scale-110 border-2"
-              style={{
-                backgroundColor: c.hex,
-                borderColor: localColor === c.hex ? 'white' : 'transparent',
-                outline: localColor === c.hex ? `2px solid ${c.hex}` : 'none',
-                outlineOffset: 2,
-              }}
-            />
-          ))}
-          {/* Custom color picker */}
-          <div className="relative">
-            <input
-              type="color"
-              value={localColor}
-              onChange={e => handleColorChange(e.target.value)}
-              className="w-8 h-8 rounded-xl cursor-pointer border-2 border-synapsix-border overflow-hidden"
-              title="Color personalizado"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* ── EMPRESA ─────────────────────────────────────────────── */}
-      <section className="space-y-4">
-        <div className="flex items-center gap-2 pb-2 border-b border-synapsix-border">
-          <Building2 className="w-4 h-4 text-synapsix-muted" />
-          <h2 className="text-sm font-semibold text-synapsix-text-2 uppercase tracking-wider">Datos de la empresa</h2>
-        </div>
+      {/* Información */}
+      <div className="glass rounded-2xl border border-synapsix-border p-5 space-y-4">
+        <h3 className="text-sm font-bold text-synapsix-text-2 flex items-center gap-2"><Building2 className="w-4 h-4 text-synapsix-muted" /> Información de la empresa</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[
-            { key: 'tax_id', label: 'RFC / RUC / NIT', placeholder: 'XAXX010101000' },
-            { key: 'email', label: 'Correo', placeholder: 'contacto@empresa.com', type: 'email' },
-            { key: 'phone', label: 'Teléfono', placeholder: '+52 55 0000 0000' },
-            { key: 'currency', label: 'Moneda', type: 'select', options: [
-              { v: 'MXN', l: 'MXN — Peso Mexicano' }, { v: 'USD', l: 'USD — Dólar' },
-              { v: 'COP', l: 'COP — Peso Colombiano' }, { v: 'PEN', l: 'PEN — Sol Peruano' },
-            ]},
-          ].map(({ key, label, placeholder, type, options }) => (
-            <div key={key} className="space-y-1.5">
-              <label className="text-xs font-medium text-synapsix-muted uppercase tracking-wider">{label}</label>
-              {type === 'select' ? (
-                <select value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} className="input-field">
-                  {options.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
-                </select>
-              ) : (
-                <input
-                  type={type || 'text'}
-                  value={form[key]}
-                  onChange={e => setForm({ ...form, [key]: e.target.value })}
-                  placeholder={placeholder}
-                  className="input-field"
-                />
-              )}
+          <Field label="Nombre de la empresa" required error={errors.name}>
+            <input value={form.name || ''} onChange={e => set('name', e.target.value)}
+              className={clsx('input-field', errors.name && 'border-red-500/50')}
+              placeholder="Mi Restaurante S.A." />
+          </Field>
+          <Field label="RFC / RUC / NIT" error={errors.tax_id} hint="Identificación fiscal">
+            <input value={form.tax_id || ''} onChange={e => set('tax_id', e.target.value)}
+              className="input-field" placeholder="XAXX010101000" />
+          </Field>
+          <Field label="Teléfono" error={errors.phone}>
+            <div className="relative">
+              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-synapsix-muted" />
+              <input value={form.phone || ''} onChange={e => set('phone', e.target.value)}
+                className={clsx('input-field pl-9', errors.phone && 'border-red-500/50')}
+                placeholder="+52 55 1234 5678" />
             </div>
-          ))}
+          </Field>
+          <Field label="Email" error={errors.email}>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-synapsix-muted" />
+              <input type="email" value={form.email || ''} onChange={e => set('email', e.target.value)}
+                className={clsx('input-field pl-9', errors.email && 'border-red-500/50')}
+                placeholder="contacto@empresa.com" />
+            </div>
+          </Field>
+          <Field label="Sitio web" error={errors.website} hint="Incluye https://">
+            <div className="relative">
+              <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-synapsix-muted" />
+              <input value={form.website || ''} onChange={e => set('website', e.target.value)}
+                className={clsx('input-field pl-9', errors.website && 'border-red-500/50')}
+                placeholder="https://miempresa.com" />
+            </div>
+          </Field>
+          <Field label="Dirección" error={errors.address}>
+            <input value={form.address || ''} onChange={e => set('address', e.target.value)}
+              className="input-field" placeholder="Calle, Ciudad, País" />
+          </Field>
         </div>
-      </section>
+      </div>
 
-      <div className="flex justify-end pt-2">
-        <button onClick={handleSave} className="btn-primary gap-2">
-          <Save className="w-4 h-4" />
-          {saved ? '¡Guardado!' : 'Guardar cambios'}
+      {/* Preferencias */}
+      <div className="glass rounded-2xl border border-synapsix-border p-5 space-y-4">
+        <h3 className="text-sm font-bold text-synapsix-text-2 flex items-center gap-2"><Clock className="w-4 h-4 text-synapsix-muted" /> Preferencias del sistema</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Moneda" error={errors.currency}>
+            <div className="relative">
+              <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-synapsix-muted" />
+              <select value={form.currency || 'MXN'} onChange={e => set('currency', e.target.value)}
+                className="input-field pl-9 cursor-pointer">
+                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </Field>
+          <Field label="Zona Horaria" error={errors.timezone}>
+            <select value={form.timezone || 'America/Mexico_City'} onChange={e => set('timezone', e.target.value)}
+              className="input-field cursor-pointer">
+              {TIMEZONES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </Field>
+        </div>
+      </div>
+
+      {/* Guardar */}
+      <div className="flex justify-end gap-3">
+        <button onClick={handleSave} disabled={saving} className="btn-primary gap-2">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? 'Guardando...' : 'Guardar cambios'}
         </button>
       </div>
     </div>

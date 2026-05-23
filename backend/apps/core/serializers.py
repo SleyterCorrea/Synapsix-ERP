@@ -1,9 +1,20 @@
 """
-SYNAPSIX ERP — Core Serializers (ampliado con Calendario, Tareas, Hoja de Horas)
+SYNAPSIX ERP — Core Serializers (v2 — completo)
+Incluye: JWT, Company, Role (CRUD), User (completo), módulos, calendario, tareas, horas, IA.
 """
+import re
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .models import User, Company, Role, Module, Event, Task, TimeEntry
+
+TIMEZONES = [
+    'America/Mexico_City', 'America/Bogota', 'America/Lima',
+    'America/Santiago', 'America/Buenos_Aires', 'America/Caracas',
+    'America/New_York', 'America/Los_Angeles', 'Europe/Madrid',
+    'Europe/London', 'UTC',
+]
+
+CURRENCIES = ['MXN', 'USD', 'EUR', 'COP', 'PEN', 'CLP', 'ARS', 'VES']
 
 
 # ─── JWT ─────────────────────────────────────────────────────────────────────
@@ -27,11 +38,16 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'first_name': self.user.first_name,
             'last_name':  self.user.last_name,
             'role':       self.user.role_name,
+            'is_staff':   self.user.is_staff,
+            'is_superuser': self.user.is_superuser,
             'avatar':     self.user.avatar.url if self.user.avatar else None,
             'company': {
-                'id':   str(self.user.company.id),
-                'name': self.user.company.name,
-                'slug': self.user.company.slug,
+                'id':       str(self.user.company.id),
+                'name':     self.user.company.name,
+                'slug':     self.user.company.slug,
+                'logo':     self.user.company.logo.url if self.user.company.logo else None,
+                'currency': self.user.company.currency,
+                'timezone': self.user.company.timezone,
             } if self.user.company else None,
         }
         return data
@@ -39,17 +55,73 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 # ─── Company ─────────────────────────────────────────────────────────────────
 class CompanySerializer(serializers.ModelSerializer):
+    logo_url = serializers.SerializerMethodField()
+
     class Meta:
-        model = Company
-        fields = ['id', 'name', 'slug', 'logo', 'tax_id', 'phone', 'email', 'currency', 'timezone', 'is_active']
+        model  = Company
+        fields = [
+            'id', 'name', 'slug', 'logo', 'logo_url',
+            'tax_id', 'address', 'phone', 'email', 'website',
+            'currency', 'timezone', 'is_active',
+        ]
+        read_only_fields = ['id', 'slug']
+        extra_kwargs = {'logo': {'required': False}}
+
+    def get_logo_url(self, obj):
+        if obj.logo:
+            request = self.context.get('request')
+            return request.build_absolute_uri(obj.logo.url) if request else obj.logo.url
+        return None
+
+    def validate_currency(self, v):
+        if v not in CURRENCIES:
+            raise serializers.ValidationError(f'Moneda inválida. Opciones: {", ".join(CURRENCIES)}')
+        return v
+
+    def validate_timezone(self, v):
+        if v not in TIMEZONES:
+            raise serializers.ValidationError('Zona horaria inválida.')
+        return v
+
+    def validate_phone(self, v):
+        if v and not re.match(r'^\+?[\d\s\-\(\)]{7,20}$', v):
+            raise serializers.ValidationError('Formato de teléfono inválido.')
+        return v
 
 
-# ─── Role ─────────────────────────────────────────────────────────────────────
+# ─── Role ────────────────────────────────────────────────────────────────────
 class RoleSerializer(serializers.ModelSerializer):
+    user_count = serializers.SerializerMethodField()
+
     class Meta:
-        model = Role
-        fields = ['id', 'name', 'description', 'can_access_admin', 'can_manage_users',
-                  'can_access_inventory', 'can_access_billing', 'can_access_restaurant']
+        model  = Role
+        fields = [
+            'id', 'name', 'description',
+            'can_access_admin', 'can_manage_users',
+            'can_access_inventory', 'can_access_billing', 'can_access_restaurant',
+            'user_count', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+    def get_user_count(self, obj):
+        return obj.users.count()
+
+
+class RoleCreateSerializer(serializers.ModelSerializer):
+    """Para crear y actualizar roles."""
+    class Meta:
+        model  = Role
+        fields = [
+            'name', 'description',
+            'can_access_admin', 'can_manage_users',
+            'can_access_inventory', 'can_access_billing', 'can_access_restaurant',
+        ]
+
+    def validate_name(self, v):
+        valid = [c for c, _ in Role.RoleName.choices]
+        if v not in valid:
+            raise serializers.ValidationError(f'Rol inválido. Opciones: {", ".join(valid)}')
+        return v
 
 
 # ─── User ─────────────────────────────────────────────────────────────────────
@@ -57,29 +129,75 @@ class UserSerializer(serializers.ModelSerializer):
     role      = RoleSerializer(read_only=True)
     company   = CompanySerializer(read_only=True)
     full_name = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
-        model = User
-        fields = ['id', 'email', 'first_name', 'last_name', 'full_name',
-                  'avatar', 'role', 'company', 'is_active', 'date_joined', 'last_login']
+        model  = User
+        fields = [
+            'id', 'email', 'first_name', 'last_name', 'full_name',
+            'avatar', 'avatar_url', 'role', 'company',
+            'is_active', 'is_staff', 'date_joined', 'last_login',
+        ]
         read_only_fields = ['id', 'date_joined', 'last_login']
 
     def get_full_name(self, obj):
         return obj.get_full_name()
+
+    def get_avatar_url(self, obj):
+        if obj.avatar:
+            request = self.context.get('request')
+            return request.build_absolute_uri(obj.avatar.url) if request else obj.avatar.url
+        return None
 
 
 class UserCreateSerializer(serializers.ModelSerializer):
     password         = serializers.CharField(write_only=True, min_length=8, required=False, allow_blank=True)
     password_confirm = serializers.CharField(write_only=True, required=False, allow_blank=True)
     role_id          = serializers.UUIDField(write_only=True, required=False, allow_null=True)
+    role             = RoleSerializer(read_only=True)
+    full_name        = serializers.SerializerMethodField(read_only=True)
+    avatar_url       = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model  = User
-        fields = ['email', 'first_name', 'last_name', 'password', 'password_confirm', 'role_id', 'is_active']
+        fields = [
+            'id', 'email', 'first_name', 'last_name', 'full_name',
+            'avatar', 'avatar_url',
+            'password', 'password_confirm',
+            'role_id', 'role',
+            'is_active', 'is_staff',
+            'date_joined', 'last_login',
+        ]
+        read_only_fields = ['id', 'date_joined', 'last_login']
+
+    def get_full_name(self, obj):
+        return obj.get_full_name() if obj.pk else ''
+
+    def get_avatar_url(self, obj):
+        if obj.pk and obj.avatar:
+            request = self.context.get('request')
+            return request.build_absolute_uri(obj.avatar.url) if request else obj.avatar.url
+        return None
+
+    def validate_email(self, v):
+        v = v.strip().lower()
+        if not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', v):
+            raise serializers.ValidationError('Email inválido.')
+        # En update excluir al mismo usuario
+        qs = User.objects.filter(email=v)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError('Ya existe un usuario con este email.')
+        return v
 
     def validate(self, data):
         p, pc = data.get('password'), data.get('password_confirm')
         if p or pc:
+            if not p:
+                raise serializers.ValidationError({'password': 'Ingresa la contraseña.'})
+            if len(p) < 8:
+                raise serializers.ValidationError({'password': 'Mínimo 8 caracteres.'})
             if p != pc:
                 raise serializers.ValidationError({'password_confirm': 'Las contraseñas no coinciden.'})
         return data
@@ -93,7 +211,10 @@ class UserCreateSerializer(serializers.ModelSerializer):
         user = User(**validated_data)
         user.set_password(password)
         if role_id:
-            user.role_id = role_id
+            try:
+                user.role = Role.objects.get(id=role_id)
+            except Role.DoesNotExist:
+                raise serializers.ValidationError({'role_id': 'Rol no encontrado.'})
         user.save()
         return user
 
@@ -104,7 +225,10 @@ class UserCreateSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         if role_id is not None:
-            instance.role_id = role_id if role_id else None
+            try:
+                instance.role = Role.objects.get(id=role_id) if role_id else None
+            except Role.DoesNotExist:
+                raise serializers.ValidationError({'role_id': 'Rol no encontrado.'})
         if password:
             instance.set_password(password)
         instance.save()
@@ -131,7 +255,13 @@ class EventSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def get_created_by_name(self, obj):
-        return obj.created_by.get_full_name()
+        return obj.created_by.get_full_name() if obj.created_by else ''
+
+    def validate(self, data):
+        if data.get('end_datetime') and data.get('start_datetime'):
+            if data['end_datetime'] < data['start_datetime']:
+                raise serializers.ValidationError({'end_datetime': 'La fecha fin debe ser posterior a la de inicio.'})
+        return data
 
     def create(self, validated_data):
         return Event.objects.create(**validated_data)
@@ -154,7 +284,12 @@ class TaskSerializer(serializers.ModelSerializer):
         return obj.assigned_to.get_full_name() if obj.assigned_to else None
 
     def get_created_by_name(self, obj):
-        return obj.created_by.get_full_name()
+        return obj.created_by.get_full_name() if obj.created_by else ''
+
+    def validate_title(self, v):
+        if not v.strip():
+            raise serializers.ValidationError('El título no puede estar vacío.')
+        return v.strip()
 
     def create(self, validated_data):
         assigned_id = validated_data.pop('assigned_to_id', None)
@@ -176,7 +311,7 @@ class TaskSerializer(serializers.ModelSerializer):
 
 # ─── TimeEntry ────────────────────────────────────────────────────────────────
 class TimeEntrySerializer(serializers.ModelSerializer):
-    user_name = serializers.SerializerMethodField()
+    user_name  = serializers.SerializerMethodField()
     task_title = serializers.SerializerMethodField()
 
     class Meta:
@@ -189,3 +324,8 @@ class TimeEntrySerializer(serializers.ModelSerializer):
 
     def get_task_title(self, obj):
         return obj.task.title if obj.task else None
+
+    def validate_hours(self, v):
+        if v <= 0 or v > 24:
+            raise serializers.ValidationError('Las horas deben estar entre 0.1 y 24.')
+        return v

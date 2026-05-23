@@ -20,6 +20,7 @@ import SpotlightSearch from '@components/layout/SpotlightSearch'
 import NotificationPanel from '@components/layout/NotificationPanel'
 import ChatPanel from '@components/layout/ChatPanel'
 import AppsModal from '@components/launchpad/AppsModal'
+import AIChatPanel from '@components/layout/AIChatPanel'
 import useSettingsStore from '@store/settingsStore'
 import useTenantStore from '@store/tenantStore'
 
@@ -350,6 +351,9 @@ export default function LaunchpadPage() {
           <span className="text-synapsix-muted-2 text-xs">{user?.company?.name || companyName}</span>
         </div>
       </footer>
+
+      {/* IA Chat flotante esquina inferior izquierda */}
+      <AIChatPanel />
     </div>
   )
 }
