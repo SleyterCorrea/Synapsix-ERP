@@ -5,15 +5,16 @@
  */
 import { useState } from 'react'
 import { X, LayoutGrid, Package, Receipt, Utensils, ShoppingBag, BarChart2,
-         Calendar, Clock, CheckSquare, MessageSquare, Users, Zap, ToggleLeft, ToggleRight } from 'lucide-react'
+         Calendar, Clock, CheckSquare, MessageSquare, Users, Zap, ToggleLeft, ToggleRight,
+         Globe, LayoutDashboard } from 'lucide-react'
 import clsx from 'clsx'
 import api from '@api/axios'
 
 const ICON_MAP = {
   inventario: Package, facturacion: Receipt, restaurante: Utensils,
-  'tienda-web': ShoppingBag, reportes: BarChart2, calendario: Calendar,
+  'tienda-web': ShoppingBag, 'sitio-web': Globe, reportes: BarChart2, calendario: Calendar,
   'hoja-horas': Clock, tareas: CheckSquare, chat: MessageSquare, crm: Users,
-  default: LayoutGrid,
+  dashboard: LayoutDashboard, default: LayoutGrid,
 }
 
 export default function AppsModal({ isOpen, onClose, modules, onToggle }) {
@@ -33,9 +34,10 @@ export default function AppsModal({ isOpen, onClose, modules, onToggle }) {
     }
   }
 
-  // Separar por categoría
-  const coreModules = modules.filter(m => m.is_core)
-  const businessModules = modules.filter(m => !m.is_core)
+  // Separar por categoría y ordenar: activos primero
+  const sortByActive = (arr) => [...arr].sort((a, b) => (b.is_active ? 1 : 0) - (a.is_active ? 1 : 0))
+  const coreModules = sortByActive(modules.filter(m => m.is_core))
+  const businessModules = sortByActive(modules.filter(m => !m.is_core))
 
   const ModuleRow = ({ module }) => {
     const Icon = ICON_MAP[module.slug] || ICON_MAP.default

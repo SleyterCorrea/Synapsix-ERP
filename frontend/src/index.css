@@ -203,3 +203,251 @@
 .animate-fade-in      { animation: fade-in 0.3s ease-out; }
 .animate-slide-in-up  { animation: slide-in-up 0.4s ease-out; }
 .animate-fade-in-scale{ animation: fade-in-scale 0.25s ease-out; }
+
+/* ─── Web Builder Layout ─────────────────────────────────────────────────── */
+#web-builder-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: #141414;
+  font-family: 'Inter', sans-serif;
+}
+
+#web-builder-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  height: 50px;
+  background: #1c1c1c;
+  border-bottom: 1px solid #2e2e2e;
+  flex-shrink: 0;
+  gap: 12px;
+  z-index: 100;
+}
+
+#web-builder-canvas {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ─── GrapesJS Core overrides ────────────────────────────────────────────── */
+/* Editor container */
+.gjs-editor {
+  font-family: 'Inter', sans-serif !important;
+  border: none !important;
+}
+.gjs-editor-cont {
+  height: 100% !important;
+}
+
+/* ─── Panel izquierdo (bloques) ─── */
+.gjs-pn-panel.gjs-pn-views-container {
+  background: #1c1c1c !important;
+  border-right: 1px solid #2a2a2a !important;
+  width: 240px !important;
+  top: 0 !important;
+}
+.gjs-pn-panel.gjs-pn-views {
+  background: #181818 !important;
+  border-right: 1px solid #2a2a2a !important;
+  border-bottom: none !important;
+  padding: 4px 0 !important;
+}
+.gjs-pn-btn {
+  color: #888 !important;
+  font-size: 18px !important;
+  padding: 8px 12px !important;
+  border-radius: 6px !important;
+  margin: 2px !important;
+}
+.gjs-pn-btn.gjs-pn-active {
+  color: #fff !important;
+  background: rgba(192,57,43,0.2) !important;
+}
+.gjs-pn-btn:hover {
+  color: #ccc !important;
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* ─── Bloques ─── */
+.gjs-blocks-c {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr) !important;
+  gap: 5px !important;
+  padding: 8px !important;
+}
+.gjs-block {
+  width: auto !important;
+  height: auto !important;
+  min-height: 72px !important;
+  padding: 10px 6px 8px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(255,255,255,0.07) !important;
+  background: rgba(255,255,255,0.04) !important;
+  color: #ccc !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+  cursor: grab !important;
+  transition: all 0.15s ease !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  line-height: 1.3 !important;
+}
+.gjs-block:hover {
+  background: rgba(192,57,43,0.14) !important;
+  border-color: rgba(192,57,43,0.4) !important;
+  color: #fff !important;
+  transform: translateY(-1px) !important;
+}
+.gjs-block:active {
+  cursor: grabbing !important;
+}
+.gjs-block__media {
+  font-size: 20px !important;
+  margin-bottom: 2px !important;
+  line-height: 1 !important;
+}
+.gjs-block-category > .gjs-title {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  color: #666 !important;
+  padding: 12px 10px 5px !important;
+  border-top: 1px solid rgba(255,255,255,0.05) !important;
+  margin-top: 4px !important;
+  background: transparent !important;
+  cursor: pointer !important;
+}
+.gjs-block-category > .gjs-title:first-child {
+  border-top: none !important;
+}
+
+/* ─── Style Manager ─── */
+.gjs-sm-sector-title {
+  background: rgba(255,255,255,0.04) !important;
+  border-radius: 8px !important;
+  padding: 9px 12px !important;
+  color: #bbb !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  border: 1px solid rgba(255,255,255,0.05) !important;
+  margin-bottom: 2px !important;
+}
+.gjs-sm-sector-title:hover {
+  background: rgba(192,57,43,0.1) !important;
+  color: #fff !important;
+}
+.gjs-sm-property {
+  padding: 4px 8px !important;
+}
+.gjs-sm-label {
+  color: #888 !important;
+  font-size: 11px !important;
+}
+.gjs-field {
+  background: rgba(255,255,255,0.07) !important;
+  border-radius: 6px !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+.gjs-field input,
+.gjs-field select {
+  background: transparent !important;
+  color: #ddd !important;
+  font-size: 12px !important;
+  border: none !important;
+}
+
+/* ─── Layer Manager ─── */
+.gjs-layer {
+  color: #ccc !important;
+  font-size: 12px !important;
+}
+.gjs-layer.gjs-selected > .gjs-layer-item {
+  background: rgba(192,57,43,0.15) !important;
+  color: #fff !important;
+}
+.gjs-layer__icon {
+  color: #888 !important;
+}
+
+/* ─── Trait Manager ─── */
+.gjs-trt-trait {
+  padding: 6px 10px !important;
+}
+.gjs-trt-trait .gjs-label {
+  color: #888 !important;
+  font-size: 11px !important;
+}
+.gjs-trt-trait input,
+.gjs-trt-trait select {
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  color: #ddd !important;
+  border-radius: 6px !important;
+  padding: 5px 8px !important;
+  font-size: 12px !important;
+}
+
+/* ─── Canvas ─── */
+.gjs-cv-canvas {
+  top: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: #2a2a2a !important;
+}
+.gjs-frame-wrapper {
+  background: #fff !important;
+}
+
+/* ─── Selección en canvas ─── */
+.gjs-selected {
+  outline: 2px solid #c0392b !important;
+  outline-offset: -2px !important;
+}
+.gjs-hovered {
+  outline: 1px dashed rgba(192,57,43,0.6) !important;
+  outline-offset: -1px !important;
+}
+
+/* ─── Toolbar del elemento seleccionado ─── */
+.gjs-toolbar {
+  background: #1c1c1c !important;
+  border: 1px solid #3a3a3a !important;
+  border-radius: 8px !important;
+  padding: 2px !important;
+}
+.gjs-toolbar-item {
+  color: #ccc !important;
+  border-radius: 6px !important;
+  padding: 4px 8px !important;
+  font-size: 14px !important;
+  cursor: pointer !important;
+}
+.gjs-toolbar-item:hover {
+  background: rgba(192,57,43,0.2) !important;
+  color: #fff !important;
+}
+
+/* ─── Resizers ─── */
+.gjs-resizer-h {
+  background: #c0392b !important;
+}
+
+/* ─── Scrollbar del panel ─── */
+.gjs-pn-panel.gjs-pn-views-container ::-webkit-scrollbar { width: 4px; }
+.gjs-pn-panel.gjs-pn-views-container ::-webkit-scrollbar-track { background: transparent; }
+.gjs-pn-panel.gjs-pn-views-container ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+
+/* ─── Ocultar barra de herramientas nativa de GrapesJS (usamos la nuestra) ─── */
+.gjs-pn-panel.gjs-pn-commands { display: none !important; }
+.gjs-pn-panel.gjs-pn-options  { display: none !important; }
+
+

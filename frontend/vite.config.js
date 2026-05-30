@@ -22,6 +22,7 @@ export default defineConfig({
       '/api': {
         target: process.env.VITE_API_BASE_URL || 'http://backend:8000',
         changeOrigin: true,
+        headers: { 'Host': 'localhost' },  // Fix: Django ALLOWED_HOSTS rejects 'backend' hostname
       },
     },
   },

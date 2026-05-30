@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Search, LogOut, Package, Receipt, Utensils, ShoppingBag,
   BarChart2, Grid, Calendar, Clock, CheckSquare, Users,
-  Settings, ChevronRight, Zap, AlertCircle, RefreshCw, LayoutGrid, LayoutDashboard,
+  Settings, ChevronRight, Zap, AlertCircle, RefreshCw, LayoutGrid, LayoutDashboard, Globe,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '@hooks/useAuth'
@@ -36,6 +36,7 @@ const ICON_MAP = {
   facturacion:   Receipt,
   restaurante:   Utensils,
   'tienda-web':  ShoppingBag,
+  'sitio-web':   Globe,
   reportes:      BarChart2,
   calendario:    Calendar,
   'hoja-horas':  Clock,
