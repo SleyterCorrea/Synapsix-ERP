@@ -233,34 +233,33 @@ def toggle_module_view(request, slug):
 def ai_chat_view(request):
     """
     POST /api/v1/core/ai/chat/
-    Proxy a Gemini con contexto del ERP. Puede ejecutar comandos si la IA responde con actions.
+    Proxy a Gemini con contexto del ERP.
     """
     import os, json
     try:
         import google.generativeai as genai
     except ImportError:
-        return Response({'error': 'google-generativeai no instalado. Agrega GEMINI_API_KEY al .env'}, status=503)
+        return Response({'error': 'google-generativeai no instalado.'}, status=503)
 
     api_key = os.environ.get('GEMINI_API_KEY', '')
     if not api_key:
-        return Response({'error': 'GEMINI_API_KEY no configurada en el servidor.'}, status=503)
+        return Response({'error': 'GEMINI_API_KEY no configurada.'}, status=503)
 
     user      = request.user
     company   = user.company
     message   = request.data.get('message', '').strip()
-    history   = request.data.get('history', [])  # [{role, text}]
+    history   = request.data.get('history', [])
 
     if not message:
         return Response({'error': 'Mensaje vacío.'}, status=400)
 
-    # ── Contexto del ERP ──────────────────────────────────────────────────────
     user_count    = company.users.filter(is_active=True).count() if company else 0
     active_mods   = list(Module.objects.filter(is_active=True).values_list('name', flat=True))
     pending_tasks = Task.objects.filter(company=company, status__in=['todo','in_progress']).count()
 
     try:
         from apps.modulo_restaurante.models import Mesa
-        mesas_libres  = Mesa.objects.filter(company=company, estado='libre', is_active=True).count()
+        mesas_libres   = Mesa.objects.filter(company=company, estado='libre', is_active=True).count()
         mesas_ocupadas = Mesa.objects.filter(company=company, estado='ocupada', is_active=True).count()
         resto_ctx = f"Mesas libres: {mesas_libres}, Mesas ocupadas: {mesas_ocupadas}."
     except Exception:
@@ -276,47 +275,75 @@ def ai_chat_view(request):
     except Exception:
         inv_ctx = ""
 
-    system_prompt = f"""Eres el asistente IA de Synapsix ERP. Ayudas a los usuarios a gestionar su negocio.
+    system_prompt = f"""Eres SynapsiX IA, el asistente inteligente integrado en Synapsix ERP.
+Synapsix ERP es un sistema de gestión empresarial modular para pequeñas y medianas empresas.
 
-CONTEXTO ACTUAL DEL SISTEMA:
-- Usuario: {user.get_full_name()} ({user.email})
-- Empresa: {company.name if company else 'Sin empresa'}
-- Módulos activos: {', '.join(active_mods) or 'Ninguno'}
-- Usuarios activos: {user_count}
+CONTEXTO EN TIEMPO REAL:
+- Usuario actual: {user.get_full_name() or user.email} ({user.email})
+- Empresa: {company.name if company else 'Sin empresa asignada'}
+- Módulos activos: {', '.join(active_mods) if active_mods else 'Ninguno'}
+- Empleados activos: {user_count}
 - Tareas pendientes: {pending_tasks}
-{resto_ctx}
-{inv_ctx}
+{f'- Estado restaurante: {resto_ctx}' if resto_ctx else ''}
+{f'- Estado inventario: {inv_ctx}' if inv_ctx else ''}
 
-CAPACIDADES:
-Puedes responder preguntas sobre el ERP, dar instrucciones paso a paso, y cuando el usuario te pida EJECUTAR algo (crear usuario, cambiar estado, etc), responde con un JSON de acción en tu mensaje usando este formato exacto al final:
+MÓDULOS DEL SISTEMA Y SUS RUTAS:
+1. Launchpad (/launchpad) → Panel principal, acceso a todos los módulos
+2. Dashboard (/dashboard) → Resumen general: tareas, eventos, horas trabajadas
+3. Inventario (/inventario) → Productos, categorías, control de stock y movimientos
+4. Restaurante (/restaurante) → Gestión de mesas, tomar comandas, ver estado del salón
+5. Cocina (/restaurante/cocina) → Vista KDS para el equipo de cocina
+6. Calendario (/calendario) → Eventos del equipo, agenda mensual/semanal
+7. Tareas (/tareas) → Tablero Kanban: pendientes, en progreso, completadas
+8. Hoja de Horas (/hoja-horas) → Registro de tiempo trabajado por proyecto/tarea
+9. Sitio Web (/sitio-web) → Constructor drag & drop para crear el sitio web del negocio
+10. Configuración (/settings) → Gestión de usuarios, roles y ajustes del sistema
+11. Perfil (/perfil) → Datos personales y cambio de contraseña del usuario
+
+ACCIONES QUE PUEDES EJECUTAR:
+Si el usuario quiere navegar a una sección, SIEMPRE incluye al final del mensaje este bloque:
 ```action
-{{"type": "navigate", "path": "/settings?section=users"}}
+{{"type": "navigate", "path": "/ruta-del-modulo"}}
+```
+Para enviar una notificación al usuario:
+```action
+{{"type": "notify", "title": "Título", "message": "Mensaje"}}
 ```
 
-Tipos de acción disponibles:
-- navigate: {"type": "navigate", "path": "/ruta"}
-- notify: {"type": "notify", "title": "...", "message": "..."}
-
-INSTRUCCIONES:
-- Responde siempre en español
-- Sé conciso y directo
-- Si no sabes algo del negocio específico del usuario, dilo claramente
-- Para crear usuarios, guía al usuario a Settings > Usuarios
-- Para inventario, guía a /inventario
-- Para restaurante, guía a /restaurante"""
+REGLAS:
+- Responde SIEMPRE en español
+- Sé conciso, amigable y útil
+- Cuando el usuario pregunte por un módulo, ofrece llevarlo ahí con navigate
+- Para crear usuarios → /settings
+- Para agregar productos → /inventario
+- Si no tienes información específica del negocio, dilo con honestidad
+- Nunca inventes datos que no tengas en el contexto"""
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
 
-        # Construir historial
+        # Construir historial compatible con google-generativeai 0.7.x
         chat_history = []
-        for h in history[-10:]:  # máx últimos 10 mensajes
+        for h in history[-10:]:
             role = 'user' if h.get('role') == 'user' else 'model'
-            chat_history.append({'role': role, 'parts': [h.get('text', '')]})
+            text = h.get('text', '')
+            if text:
+                chat_history.append({'role': role, 'parts': [{'text': text}]})
 
-        chat = model.start_chat(history=chat_history)
-        response = chat.send_message(f"{system_prompt}\n\nUsuario: {message}")
+        # system_instruction disponible en 0.5+
+        try:
+            model = genai.GenerativeModel(
+                model_name='gemini-1.5-flash',
+                system_instruction=system_prompt,
+            )
+            chat = model.start_chat(history=chat_history)
+            response = chat.send_message(message)
+        except (TypeError, AttributeError):
+            # Fallback: inyectar system prompt en el primer mensaje
+            model = genai.GenerativeModel(model_name='gemini-1.5-flash')
+            chat = model.start_chat(history=chat_history)
+            response = chat.send_message(f"{system_prompt}\n\nUsuario: {message}")
+
         reply = response.text
 
         # Parsear action si existe
@@ -332,7 +359,12 @@ INSTRUCCIONES:
         return Response({'reply': reply, 'action': action})
 
     except Exception as e:
-        return Response({'error': f'Error al contactar IA: {str(e)}'}, status=500)
+        error_msg = str(e)
+        if 'api key' in error_msg.lower() or 'API_KEY' in error_msg:
+            error_msg = 'API Key de Gemini inválida o no configurada.'
+        elif 'quota' in error_msg.lower():
+            error_msg = 'Cuota de la API agotada. Intenta más tarde.'
+        return Response({'error': f'Error al contactar IA: {error_msg}'}, status=500)
 
 
 # ─── NOTIFICACIONES ───────────────────────────────────────────────────────────

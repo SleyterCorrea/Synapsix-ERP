@@ -12,7 +12,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 15000,
+  timeout: 45000,  // 45s — suficiente para respuestas de Gemini IA
 })
 
 // ─── Interceptor de Request: Inyectar token JWT ───────────────────────────
