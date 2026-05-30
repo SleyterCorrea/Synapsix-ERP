@@ -330,19 +330,39 @@ REGLAS:
             if text:
                 chat_history.append({'role': role, 'parts': [{'text': text}]})
 
-        # system_instruction disponible en 0.5+
-        try:
-            model = genai.GenerativeModel(
-                model_name='gemini-1.5-flash',
-                system_instruction=system_prompt,
-            )
-            chat = model.start_chat(history=chat_history)
-            response = chat.send_message(message)
-        except (TypeError, AttributeError):
-            # Fallback: inyectar system prompt en el primer mensaje
-            model = genai.GenerativeModel(model_name='gemini-1.5-flash')
-            chat = model.start_chat(history=chat_history)
-            response = chat.send_message(f"{system_prompt}\n\nUsuario: {message}")
+        # Orden de preferencia de modelos (de más compatible a más nuevo)
+        CANDIDATE_MODELS = [
+            'gemini-pro',           # Más compatible con v1beta, API 0.7.x
+            'gemini-1.0-pro',       # Alias estable
+            'gemini-1.5-flash',     # Requiere API más nueva
+            'gemini-1.5-pro',       # Más potente pero más lento
+        ]
+
+        response = None
+        last_error = None
+
+        for model_name in CANDIDATE_MODELS:
+            try:
+                # Intentar con system_instruction primero
+                try:
+                    model = genai.GenerativeModel(
+                        model_name=model_name,
+                        system_instruction=system_prompt,
+                    )
+                    chat = model.start_chat(history=chat_history)
+                    response = chat.send_message(message)
+                except (TypeError, AttributeError):
+                    # Fallback: inyectar system prompt en el mensaje
+                    model = genai.GenerativeModel(model_name=model_name)
+                    chat = model.start_chat(history=chat_history)
+                    response = chat.send_message(f"{system_prompt}\n\nUsuario: {message}")
+                break  # Si llegamos aquí, funcionó
+            except Exception as model_err:
+                last_error = model_err
+                continue  # Probar el siguiente modelo
+
+        if response is None:
+            raise last_error or Exception("Ningún modelo de Gemini disponible.")
 
         reply = response.text
 
@@ -364,6 +384,8 @@ REGLAS:
             error_msg = 'API Key de Gemini inválida o no configurada.'
         elif 'quota' in error_msg.lower():
             error_msg = 'Cuota de la API agotada. Intenta más tarde.'
+        elif '404' in error_msg or 'not found' in error_msg.lower():
+            error_msg = 'Modelo de Gemini no disponible para esta API key. Verifica tu plan en Google AI Studio.'
         return Response({'error': f'Error al contactar IA: {error_msg}'}, status=500)
 
 
