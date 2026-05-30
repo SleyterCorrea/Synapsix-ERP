@@ -58,6 +58,7 @@ services:
       - .env
     environment:
       REDIS_URL: redis://redis:6379
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0,backend"
     volumes:
       - ./backend:/app
       - static_volume:/app/staticfiles
@@ -71,7 +72,7 @@ services:
         condition: service_healthy
     command: >
       sh -c "pip install -r requirements/base.txt -q &&
-             python manage.py makemigrations core inventario restaurante --noinput &&
+             python manage.py makemigrations core inventario restaurante modulo_web --noinput &&
              python manage.py migrate --noinput &&
              python manage.py create_superuser_if_none &&
              python manage.py seed_modules &&
