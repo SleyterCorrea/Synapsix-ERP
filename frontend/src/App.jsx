@@ -12,6 +12,9 @@ import CocinaPage from '@pages/modules/CocinaPage'
 import CalendarPage from '@pages/modules/CalendarPage'
 import TasksPage from '@pages/modules/TasksPage'
 import TimesheetPage from '@pages/modules/TimesheetPage'
+import AccountingDashboardPage from '@pages/modules/AccountingDashboardPage'
+import InvoiceListPage from '@pages/modules/InvoiceListPage'
+import InvoiceDetailPage from '@pages/modules/InvoiceDetailPage'
 import ProtectedRoute from '@components/auth/ProtectedRoute'
 import PublicWebsite from '@pages/web/PublicWebsite'
 
@@ -64,6 +67,11 @@ function App() {
               </Suspense>
             }
           />
+
+          {/* ── Módulo Facturación / Contabilidad ── */}
+          <Route path="/facturacion"                  element={<AccountingDashboardPage />} />
+          <Route path="/facturacion/facturas"         element={<InvoiceListPage />} />
+          <Route path="/facturacion/facturas/:id"     element={<InvoiceDetailPage />} />
         </Route>
 
         {/* Redirect catch-all */}

@@ -23,7 +23,7 @@ urlpatterns = [
 
         # Módulos de negocio
         path('restaurante/', include('apps.modulo_restaurante.urls')),
-        # path('facturacion/', include('apps.modulo_facturacion.urls')),
+        path('facturacion/', include('apps.modulo_facturacion.urls')),
         path('web/', include('apps.modulo_web.urls')),
     ])),
 ]
