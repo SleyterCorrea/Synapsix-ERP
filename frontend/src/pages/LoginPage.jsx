@@ -22,7 +22,7 @@ const SynapsixLogo = () => (
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const { login, isAuthenticated, isLoading, error, clearError } = useAuth()
+  const { login, isAuthenticated, isLoading, error, clearError, user } = useAuth()
   const { getBackgroundStyle } = useSettingsStore()
 
   const [email, setEmail] = useState('')
@@ -33,11 +33,12 @@ export default function LoginPage() {
   // Si ya está autenticado, redirigir según rol
   useEffect(() => {
     if (isAuthenticated) {
-      const { user: storeUser } = useAuthStore.getState()
-      const isAdmin = storeUser?.is_staff || storeUser?.role === 'Administrador'
+      // user puede ser null si el token persiste pero user no se cargó
+      // En ese caso, redirigimos por defecto al launchpad para admin
+      const isAdmin = !user || user?.is_staff || user?.role === 'Administrador'
       navigate(isAdmin ? '/launchpad' : '/', { replace: true })
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, user, navigate])
 
   // Efecto shake cuando hay error
   useEffect(() => {
