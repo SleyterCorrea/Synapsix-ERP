@@ -30,10 +30,12 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [shake, setShake] = useState(false)
 
-  // Si ya está autenticado, redirigir al launchpad
+  // Si ya está autenticado, redirigir según rol
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/launchpad', { replace: true })
+      const { user: storeUser } = useAuthStore.getState()
+      const isAdmin = storeUser?.is_staff || storeUser?.role === 'Administrador'
+      navigate(isAdmin ? '/launchpad' : '/', { replace: true })
     }
   }, [isAuthenticated, navigate])
 
@@ -53,7 +55,10 @@ export default function LoginPage() {
 
     const result = await login(email.trim(), password)
     if (result.success) {
-      navigate('/launchpad', { replace: true })
+      // Enrutamiento inteligente: admin → launchpad, usuario común → sitio público
+      const loggedUser = result.user
+      const isAdmin = loggedUser?.is_staff || loggedUser?.role === 'Administrador'
+      navigate(isAdmin ? '/launchpad' : '/', { replace: true })
     }
   }
 

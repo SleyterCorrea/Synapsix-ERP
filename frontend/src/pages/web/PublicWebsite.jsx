@@ -74,7 +74,14 @@ export default function PublicWebsite() {
     setLoginBusy(true); setLoginErr('')
     const res = await login(loginForm.email, loginForm.password)
     setLoginBusy(false)
-    if (res.success) { setShowLogin(false); navigate('/launchpad') }
+    if (res.success) {
+      setShowLogin(false)
+      // Enrutamiento inteligente según rol
+      const loggedUser = res.user
+      const isAdmin = loggedUser?.is_staff || loggedUser?.role === 'Administrador'
+      if (isAdmin) navigate('/launchpad')
+      // Si no es admin, se queda en el sitio público (no redirige)
+    }
     else setLoginErr(res.error || 'Credenciales incorrectas')
   }
 

@@ -233,17 +233,13 @@ def toggle_module_view(request, slug):
 def ai_chat_view(request):
     """
     POST /api/v1/core/ai/chat/
-    Proxy a Gemini con contexto del ERP.
+    Proxy a Gemini (google-genai SDK >=1.0) con contexto del ERP.
     """
     import os, json
-    try:
-        import google.generativeai as genai
-    except ImportError:
-        return Response({'error': 'google-generativeai no instalado.'}, status=503)
 
     api_key = os.environ.get('GEMINI_API_KEY', '')
     if not api_key:
-        return Response({'error': 'GEMINI_API_KEY no configurada.'}, status=503)
+        return Response({'error': 'GEMINI_API_KEY no configurada en el servidor. Agrega la variable al archivo .env'}, status=503)
 
     user      = request.user
     company   = user.company
@@ -253,13 +249,14 @@ def ai_chat_view(request):
     if not message:
         return Response({'error': 'Mensaje vacío.'}, status=400)
 
+    # ── Contexto del ERP en tiempo real ──────────────────────────────────────
     user_count    = company.users.filter(is_active=True).count() if company else 0
     active_mods   = list(Module.objects.filter(is_active=True).values_list('name', flat=True))
-    pending_tasks = Task.objects.filter(company=company, status__in=['todo','in_progress']).count()
+    pending_tasks = Task.objects.filter(company=company, status__in=['todo', 'in_progress']).count()
 
     try:
         from apps.modulo_restaurante.models import Mesa
-        mesas_libres   = Mesa.objects.filter(company=company, estado='libre', is_active=True).count()
+        mesas_libres   = Mesa.objects.filter(company=company, estado='libre',   is_active=True).count()
         mesas_ocupadas = Mesa.objects.filter(company=company, estado='ocupada', is_active=True).count()
         resto_ctx = f"Mesas libres: {mesas_libres}, Mesas ocupadas: {mesas_ocupadas}."
     except Exception:
@@ -279,63 +276,72 @@ def ai_chat_view(request):
 Synapsix ERP es un sistema de gestión empresarial modular para pequeñas y medianas empresas.
 
 CONTEXTO EN TIEMPO REAL:
-- Usuario actual: {user.get_full_name() or user.email} ({user.email})
+- Usuario: {user.get_full_name() or user.email} ({user.email})
 - Empresa: {company.name if company else 'Sin empresa asignada'}
 - Módulos activos: {', '.join(active_mods) if active_mods else 'Ninguno'}
 - Empleados activos: {user_count}
 - Tareas pendientes: {pending_tasks}
-{f'- Estado restaurante: {resto_ctx}' if resto_ctx else ''}
-{f'- Estado inventario: {inv_ctx}' if inv_ctx else ''}
+{f'- Restaurante: {resto_ctx}' if resto_ctx else ''}
+{f'- Inventario: {inv_ctx}' if inv_ctx else ''}
 
-MÓDULOS DEL SISTEMA Y SUS RUTAS:
-1. Launchpad (/launchpad) → Panel principal, acceso a todos los módulos
-2. Dashboard (/dashboard) → Resumen general: tareas, eventos, horas trabajadas
-3. Inventario (/inventario) → Productos, categorías, control de stock y movimientos
-4. Restaurante (/restaurante) → Gestión de mesas, tomar comandas, ver estado del salón
-5. Cocina (/restaurante/cocina) → Vista KDS para el equipo de cocina
-6. Calendario (/calendario) → Eventos del equipo, agenda mensual/semanal
-7. Tareas (/tareas) → Tablero Kanban: pendientes, en progreso, completadas
-8. Hoja de Horas (/hoja-horas) → Registro de tiempo trabajado por proyecto/tarea
-9. Sitio Web (/sitio-web) → Constructor drag & drop para crear el sitio web del negocio
-10. Configuración (/settings) → Gestión de usuarios, roles y ajustes del sistema
-11. Perfil (/perfil) → Datos personales y cambio de contraseña del usuario
+MÓDULOS DEL SISTEMA Y RUTAS:
+1. Launchpad (/launchpad) → Panel principal
+2. Dashboard (/dashboard) → Resumen y métricas
+3. Inventario (/inventario) → Productos y stock
+4. Restaurante (/restaurante) → Mesas y comandas
+5. Cocina (/restaurante/cocina) → KDS para cocina
+6. Calendario (/calendario) → Eventos del equipo
+7. Tareas (/tareas) → Tablero Kanban
+8. Hoja de Horas (/hoja-horas) → Control de tiempo
+9. Sitio Web (/sitio-web) → Constructor web drag & drop
+10. Configuración (/settings) → Usuarios, roles y ajustes
+11. Perfil (/perfil) → Datos del usuario actual
 
-ACCIONES QUE PUEDES EJECUTAR:
-Si el usuario quiere navegar a una sección, SIEMPRE incluye al final del mensaje este bloque:
+ACCIONES DISPONIBLES — incluye al FINAL del mensaje si el usuario quiere navegar:
 ```action
-{{"type": "navigate", "path": "/ruta-del-modulo"}}
+{{"type": "navigate", "path": "/ruta"}}
 ```
-Para enviar una notificación al usuario:
+O para notificaciones:
 ```action
 {{"type": "notify", "title": "Título", "message": "Mensaje"}}
 ```
 
 REGLAS:
 - Responde SIEMPRE en español
-- Sé conciso, amigable y útil
-- Cuando el usuario pregunte por un módulo, ofrece llevarlo ahí con navigate
-- Para crear usuarios → /settings
-- Para agregar productos → /inventario
-- Si no tienes información específica del negocio, dilo con honestidad
-- Nunca inventes datos que no tengas en el contexto"""
+- Sé conciso, amigable y directo
+- Ofrece llevar al usuario al módulo correcto con navigate
+- No inventes datos que no estén en el contexto"""
 
     try:
-        genai.configure(api_key=api_key)
+        # Nueva SDK: google-genai >= 1.0.0
+        from google import genai as google_genai
+        from google.genai import types as genai_types
 
-        # Construir historial compatible con google-generativeai 0.7.x
-        chat_history = []
+        client = google_genai.Client(api_key=api_key)
+
+        # Construir historial de conversación
+        contents = []
         for h in history[-10:]:
             role = 'user' if h.get('role') == 'user' else 'model'
             text = h.get('text', '')
             if text:
-                chat_history.append({'role': role, 'parts': [{'text': text}]})
+                contents.append(genai_types.Content(
+                    role=role,
+                    parts=[genai_types.Part(text=text)]
+                ))
 
-        # Orden de preferencia de modelos (de más compatible a más nuevo)
+        # Agregar el mensaje actual del usuario
+        contents.append(genai_types.Content(
+            role='user',
+            parts=[genai_types.Part(text=message)]
+        ))
+
+        # Modelos en orden de preferencia
         CANDIDATE_MODELS = [
-            'gemini-pro',           # Más compatible con v1beta, API 0.7.x
-            'gemini-1.0-pro',       # Alias estable
-            'gemini-1.5-flash',     # Requiere API más nueva
-            'gemini-1.5-pro',       # Más potente pero más lento
+            'gemini-2.0-flash',
+            'gemini-2.0-flash-lite',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro',
         ]
 
         response = None
@@ -343,28 +349,24 @@ REGLAS:
 
         for model_name in CANDIDATE_MODELS:
             try:
-                # Intentar con system_instruction primero
-                try:
-                    model = genai.GenerativeModel(
-                        model_name=model_name,
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=genai_types.GenerateContentConfig(
                         system_instruction=system_prompt,
-                    )
-                    chat = model.start_chat(history=chat_history)
-                    response = chat.send_message(message)
-                except (TypeError, AttributeError):
-                    # Fallback: inyectar system prompt en el mensaje
-                    model = genai.GenerativeModel(model_name=model_name)
-                    chat = model.start_chat(history=chat_history)
-                    response = chat.send_message(f"{system_prompt}\n\nUsuario: {message}")
-                break  # Si llegamos aquí, funcionó
+                        temperature=0.7,
+                        max_output_tokens=1024,
+                    ),
+                )
+                break  # Éxito
             except Exception as model_err:
                 last_error = model_err
-                continue  # Probar el siguiente modelo
+                continue
 
         if response is None:
             raise last_error or Exception("Ningún modelo de Gemini disponible.")
 
-        reply = response.text
+        reply = response.text or ''
 
         # Parsear action si existe
         action = None
@@ -378,18 +380,60 @@ REGLAS:
 
         return Response({'reply': reply, 'action': action})
 
+    except ImportError:
+        # Fallback a la SDK antigua si google-genai no está instalado todavía
+        try:
+            import google.generativeai as genai_old
+            genai_old.configure(api_key=api_key)
+
+            chat_history = []
+            for h in history[-10:]:
+                role = 'user' if h.get('role') == 'user' else 'model'
+                text = h.get('text', '')
+                if text:
+                    chat_history.append({'role': role, 'parts': [{'text': text}]})
+
+            for model_name in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
+                try:
+                    model = genai_old.GenerativeModel(
+                        model_name=model_name,
+                        system_instruction=system_prompt,
+                    )
+                    chat  = model.start_chat(history=chat_history)
+                    resp  = chat.send_message(message)
+                    reply = resp.text or ''
+
+                    action = None
+                    if '```action' in reply:
+                        try:
+                            action_str = reply.split('```action')[1].split('```')[0].strip()
+                            action = json.loads(action_str)
+                            reply = reply.split('```action')[0].strip()
+                        except Exception:
+                            pass
+
+                    return Response({'reply': reply, 'action': action})
+                except Exception:
+                    continue
+
+            return Response({'error': 'No se pudo conectar con ningún modelo de Gemini.'}, status=503)
+        except ImportError:
+            return Response({'error': 'Librería de Gemini no instalada. Ejecuta: pip install google-genai'}, status=503)
+
     except Exception as e:
         error_msg = str(e)
-        if 'api key' in error_msg.lower() or 'API_KEY' in error_msg:
-            error_msg = 'API Key de Gemini inválida o no configurada.'
-        elif 'quota' in error_msg.lower():
-            error_msg = 'Cuota de la API agotada. Intenta más tarde.'
+        if 'api_key' in error_msg.lower() or 'api key' in error_msg.lower() or 'invalid' in error_msg.lower():
+            error_msg = 'API Key de Gemini inválida. Verifica la variable GEMINI_API_KEY en el archivo .env'
+        elif 'quota' in error_msg.lower() or 'rate' in error_msg.lower():
+            error_msg = 'Cuota de la API de Gemini agotada. Intenta más tarde.'
         elif '404' in error_msg or 'not found' in error_msg.lower():
-            error_msg = 'Modelo de Gemini no disponible para esta API key. Verifica tu plan en Google AI Studio.'
-        return Response({'error': f'Error al contactar IA: {error_msg}'}, status=500)
-
+            error_msg = 'Modelo no disponible para esta API key. Verifica en https://aistudio.google.com'
+        elif 'permission' in error_msg.lower() or '403' in error_msg:
+            error_msg = 'Sin permisos para usar este modelo. Verifica tu plan en Google AI Studio.'
+        return Response({'error': f'Error IA: {error_msg}'}, status=500)
 
 # ─── NOTIFICACIONES ───────────────────────────────────────────────────────────
+
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def send_notification(request, user_id):

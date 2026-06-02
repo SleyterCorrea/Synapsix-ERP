@@ -34,7 +34,7 @@ const useAuthStore = create((set, get) => ({
         error: null,
       })
 
-      return { success: true }
+      return { success: true, user }
     } catch (error) {
       const message =
         error.response?.data?.detail ||
