@@ -21,14 +21,27 @@ const SUGGESTIONS = [
 ]
 
 function MarkdownText({ text }) {
-  // Renderizado básico: **bold**, `code`, saltos de línea
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+  // Renderizado de markdown: **bold**, `code`, \n, bullet lists (• o -)
+  const lines = text.split('\n')
   return (
-    <span>
-      {parts.map((p, i) => {
-        if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{p.slice(2, -2)}</strong>
-        if (p.startsWith('`') && p.endsWith('`')) return <code key={i} className="bg-synapsix-surface-3 px-1 rounded text-[10px] font-mono">{p.slice(1, -1)}</code>
-        return p.split('\n').map((line, j) => <span key={`${i}-${j}`}>{j > 0 && <br />}{line}</span>)
+    <span style={{ display: 'block' }}>
+      {lines.map((line, i) => {
+        const isBullet = /^[•\-\*]\s/.test(line.trimStart()) || /^\d+[️⃣]/.test(line.trimStart())
+        const parts = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+        const rendered = parts.map((p, j) => {
+          if (p.startsWith('**') && p.endsWith('**')) return <strong key={j}>{p.slice(2, -2)}</strong>
+          if (p.startsWith('`') && p.endsWith('`')) return <code key={j} className="bg-synapsix-surface-3 px-1 rounded text-[10px] font-mono">{p.slice(1, -1)}</code>
+          return <span key={j}>{p}</span>
+        })
+        return (
+          <span key={i} style={{
+            display: 'block',
+            marginTop: i === 0 ? 0 : isBullet ? 2 : 6,
+            paddingLeft: isBullet ? 4 : 0,
+          }}>
+            {rendered}
+          </span>
+        )
       })}
     </span>
   )
@@ -90,7 +103,7 @@ export default function AIChatPanel() {
   }
 
   const handleReset = () => {
-    setMessages([{ role: 'model', text: '¡Hola! Conversación reiniciada. ¿En qué te ayudo?' }])
+    setMessages([{ role: 'model', text: '¡Hola! Conversación reiniciada. ¿En qué te ayudo? 😊' }])
     setError(null)
   }
 
@@ -132,8 +145,8 @@ export default function AIChatPanel() {
               <Bot className="w-4 h-4 text-white" />
             </div>
             <div>
-              <p className="text-sm font-bold text-synapsix-text">Asistente IA</p>
-              <p className="text-[9px] text-violet-400 font-medium">Powered by Gemini</p>
+              <p className="text-sm font-bold text-synapsix-text">Asistente Synapsix</p>
+              <p className="text-[9px] text-violet-400 font-medium">Guía Local · Siempre disponible</p>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -158,11 +171,11 @@ export default function AIChatPanel() {
                 </div>
               )}
               <div className={clsx(
-                'max-w-[80%] rounded-2xl px-3 py-2 text-xs leading-relaxed',
+                'max-w-[80%] rounded-2xl px-3 py-2.5 text-xs leading-relaxed',
                 msg.role === 'user'
                   ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-br-sm'
                   : msg.isError
-                    ? 'bg-red-500/10 border border-red-500/20 text-red-400 rounded-bl-sm'
+                    ? 'bg-synapsix-surface-3 border border-synapsix-border text-synapsix-muted rounded-bl-sm'
                     : 'bg-synapsix-surface-3 text-synapsix-text border border-synapsix-border rounded-bl-sm'
               )}>
                 <MarkdownText text={msg.text} />

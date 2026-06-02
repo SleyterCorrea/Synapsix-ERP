@@ -1,34 +1,39 @@
 /**
  * SYNAPSIX ERP — ProtectedRoute Component
- * Redirige al login si el usuario no está autenticado.
- * Muestra un spinner mientras se verifica el token inicial
- * para evitar la pantalla negra / parpadeo al recargar.
+ * Guarda de autenticación robusta. Nunca produce pantalla negra.
+ * - Si isAuthenticated=true → renderiza directamente sin esperar fetchMe
+ * - Solo muestra spinner si isLoading está activo globalmente
+ * - Timeout máximo de 3 segundos para evitar bloqueos infinitos
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@hooks/useAuth'
 
 const ProtectedRoute = () => {
-  const { isAuthenticated, isLoading, fetchMe, user } = useAuth()
+  const { isAuthenticated, isLoading } = useAuth()
 
-  // Estado local que indica si ya terminamos de verificar la sesión
-  const [checking, setChecking] = useState(true)
+  // Timeout de seguridad: si isLoading no se resuelve en 3s, pasamos igual
+  const [timedOut, setTimedOut] = useState(false)
+  const timerRef = useRef(null)
 
   useEffect(() => {
-    const verify = async () => {
-      // Si hay token pero aún no cargamos el user, intentamos fetchMe
-      if (isAuthenticated && !user) {
-        try { await fetchMe() } catch (_) {}
-      }
-      setChecking(false)
+    if (isLoading) {
+      timerRef.current = setTimeout(() => setTimedOut(true), 3000)
+    } else {
+      clearTimeout(timerRef.current)
+      setTimedOut(false)
     }
-    verify()
-    // Solo se ejecuta una vez al montar
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => clearTimeout(timerRef.current)
+  }, [isLoading])
 
-  // Mientras verificamos la sesión → spinner (nunca pantalla negra)
-  if (checking || isLoading) {
+  // Si hay token → renderiza SIEMPRE (Launchpad nunca debe bloquearse)
+  // El fetchMe se maneja en paralelo en otros componentes
+  if (isAuthenticated) {
+    return <Outlet />
+  }
+
+  // Cargando auth (máximo 3s de espera)
+  if (isLoading && !timedOut) {
     return (
       <div style={{
         minHeight: '100vh',
@@ -48,18 +53,15 @@ const ProtectedRoute = () => {
           animation: 'spin .7s linear infinite',
         }} />
         <span style={{ color: '#475569', fontSize: 13, letterSpacing: '.01em' }}>
-          Cargando Synapsix ERP…
+          Verificando sesión…
         </span>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
   }
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
-
-  return <Outlet />
+  // Sin sesión → login
+  return <Navigate to="/login" replace />
 }
 
 export default ProtectedRoute

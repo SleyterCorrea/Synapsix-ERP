@@ -1,4 +1,4 @@
-"""
+﻿"""
 SYNAPSIX ERP — Core Views v2 (completo)
 Empresa, Roles CRUD, Usuarios, IA Chat, Notificaciones, Dashboard.
 """
@@ -226,229 +226,236 @@ def toggle_module_view(request, slug):
         return Response({'error': 'Módulo no encontrado.'}, status=404)
 
 
-# ─── IA CHAT — Sistema Experto + HuggingFace (sin cuotas de Gemini) ──────────
+# ─── IA CHAT — Asistente Guía Local (100% offline + HF bonus) ────────────────
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def ai_chat_view(request):
     """
     POST /api/v1/core/ai/chat/
-    1. Sistema Experto: responde con datos reales de la BD para preguntas ERP comunes.
-    2. HuggingFace Inference API (gratuita) como fallback para preguntas generales.
+    Motor de intenciones local → siempre responde HTTP 200 con 'reply'.
+    HuggingFace se intenta en background solo si HF_TOKEN está configurado.
     """
-    import os, json, re, requests as http_requests
+    import os
 
     user    = request.user
     company = getattr(user, 'company', None)
-    message = request.data.get('message', '').strip()
+    message = (request.data.get('message', '') or '').strip()
 
     if not message:
-        return Response({'error': 'Mensaje vacío.'}, status=400)
+        return Response({'reply': '¿En qué puedo ayudarte hoy?', 'action': None})
 
-    msg_lower = message.lower()
+    msg = message.lower()
+    company_name = company.name if company else 'tu empresa'
 
-    # ── SISTEMA EXPERTO: respuestas directas desde la BD ─────────────────────
-    # Responde sin llamar a ninguna API externa cuando reconoce la intención.
-
-    def expert_response(text, action=None):
-        return Response({'reply': text, 'action': action})
-
-    # → Mesas (restaurante)
-    if any(w in msg_lower for w in ['mesa', 'mesas', 'salon', 'salón', 'comanda', 'ocupada', 'libre']):
+    # ─── MOTOR DE INTENCIONES LOCAL ──────────────────────────────────────────
+    # Regla 1: Datos en tiempo real del módulo Restaurante
+    if any(w in msg for w in ['mesa', 'mesas', 'salon', 'salón', 'comanda', 'ocupada', 'libre', 'restaurante']):
         try:
             from apps.modulo_restaurante.models import Mesa
             libres   = Mesa.objects.filter(company=company, estado='libre',   is_active=True)
             ocupadas = Mesa.objects.filter(company=company, estado='ocupada', is_active=True)
             total    = Mesa.objects.filter(company=company, is_active=True).count()
-
-            ocupadas_list = ', '.join([f'Mesa {m.nombre}' for m in ocupadas[:8]])
+            lista    = ', '.join([f'Mesa {m.nombre}' for m in ocupadas[:6]]) or 'ninguna'
             reply = (
-                f"📊 **Estado del salón ahora mismo:**\n"
-                f"• 🟢 Mesas libres: {libres.count()} de {total}\n"
-                f"• 🔴 Mesas ocupadas: {ocupadas.count()} de {total}\n"
+                f"📊 **Estado del salón en este momento:**\n\n"
+                f"• 🟢 Libres: {libres.count()} de {total}\n"
+                f"• 🔴 Ocupadas: {ocupadas.count()} de {total}\n"
+                f"• Lista: {lista}\n\n"
+                f"¿Deseas ir al módulo de Restaurante para gestionar comandas?"
             )
-            if ocupadas_list:
-                reply += f"• Ocupadas: {ocupadas_list}\n"
-            reply += "\n¿Quieres que te lleve al módulo de Restaurante?"
-            return expert_response(reply, {'type': 'navigate', 'path': '/restaurante'})
+            return Response({'reply': reply, 'action': {'type': 'navigate', 'path': '/restaurante'}})
         except Exception:
             pass
+        return Response({
+            'reply': (
+                "🍽️ **Módulo Restaurante**\n\n"
+                "Desde aquí puedes:\n"
+                "• Ver y gestionar el estado de las mesas en tiempo real\n"
+                "• Crear y cerrar comandas por mesa\n"
+                "• Enviar pedidos a la cocina directamente\n\n"
+                "¿Quieres que te lleve al módulo ahora?"
+            ),
+            'action': {'type': 'navigate', 'path': '/restaurante'}
+        })
 
-    # → Inventario / stock
-    if any(w in msg_lower for w in ['inventario', 'stock', 'producto', 'productos', 'existencia', 'agotado']):
+    # Regla 2: Inventario / Stock
+    if any(w in msg for w in ['inventario', 'stock', 'producto', 'productos', 'existencia', 'agotado', 'minimarket', 'tienda']):
         try:
             from apps.inventario.models import Product
             from django.db import models as dj_models
-            total     = Product.objects.filter(company=company).count()
+            total      = Product.objects.filter(company=company).count()
             bajo_stock = Product.objects.filter(
                 company=company, track_stock=True,
                 stock_quantity__lte=dj_models.F('min_stock')
             ).count()
-            sin_stock = Product.objects.filter(company=company, track_stock=True, stock_quantity=0).count()
-
+            sin_stock  = Product.objects.filter(company=company, track_stock=True, stock_quantity=0).count()
             reply = (
-                f"📦 **Resumen de inventario:**\n"
-                f"• Total de productos: {total}\n"
-                f"• Productos con stock bajo: {bajo_stock}\n"
-                f"• Productos sin stock: {sin_stock}\n"
+                f"📦 **Resumen de Inventario:**\n\n"
+                f"• Total de productos: **{total}**\n"
+                f"• Stock bajo: **{bajo_stock}**\n"
+                f"• Sin stock: **{sin_stock}**\n"
             )
             if bajo_stock > 0:
-                reply += "\n⚠️ Hay productos que necesitan reabastecimiento. ¿Quieres revisar el inventario?"
-            return expert_response(reply, {'type': 'navigate', 'path': '/inventario'})
+                reply += f"\n⚠️ Tienes **{bajo_stock}** producto(s) que necesitan reabastecimiento."
+            reply += "\n\n¿Quieres ir al inventario ahora?"
+            return Response({'reply': reply, 'action': {'type': 'navigate', 'path': '/inventario'}})
         except Exception:
             pass
 
-    # → Tareas / proyectos
-    if any(w in msg_lower for w in ['tarea', 'tareas', 'pendiente', 'kanban', 'proyecto']):
+    # Regla 3: Tareas / Kanban
+    if any(w in msg for w in ['tarea', 'tareas', 'pendiente', 'kanban', 'proyecto', 'actividad']):
         try:
             pendientes  = Task.objects.filter(company=company, status='todo').count()
             en_progreso = Task.objects.filter(company=company, status='in_progress').count()
             completadas = Task.objects.filter(company=company, status='done').count()
             reply = (
-                f"✅ **Resumen de tareas:**\n"
-                f"• Pendientes: {pendientes}\n"
-                f"• En progreso: {en_progreso}\n"
-                f"• Completadas: {completadas}\n"
-                f"\n¿Quieres ir al tablero Kanban?"
+                f"✅ **Resumen de Tareas:**\n\n"
+                f"• Pendientes: **{pendientes}**\n"
+                f"• En progreso: **{en_progreso}**\n"
+                f"• Completadas: **{completadas}**\n\n"
+                f"¿Quieres ir al tablero Kanban?"
             )
-            return expert_response(reply, {'type': 'navigate', 'path': '/tareas'})
+            return Response({'reply': reply, 'action': {'type': 'navigate', 'path': '/tareas'}})
         except Exception:
             pass
 
-    # → Usuarios / equipo
-    if any(w in msg_lower for w in ['usuario', 'usuarios', 'equipo', 'empleado', 'empleados', 'personal']):
+    # Regla 4: Equipo / Usuarios
+    if any(w in msg for w in ['usuario', 'usuarios', 'equipo', 'empleado', 'empleados', 'personal', 'trabajador']):
         try:
             activos = company.users.filter(is_active=True).count() if company else 0
             reply = (
-                f"👥 **Tu equipo en {company.name if company else 'la empresa'}:**\n"
-                f"• Usuarios activos: {activos}\n"
-                f"\n¿Quieres gestionar usuarios desde Configuración?"
+                f"👥 **Equipo de {company_name}:**\n\n"
+                f"• Usuarios activos: **{activos}**\n\n"
+                f"Desde **Configuración** puedes:\n"
+                f"• Invitar nuevos usuarios\n"
+                f"• Asignar roles y permisos\n"
+                f"• Gestionar contraseñas\n\n"
+                f"¿Quieres ir a Configuración?"
             )
-            return expert_response(reply, {'type': 'navigate', 'path': '/settings'})
+            return Response({'reply': reply, 'action': {'type': 'navigate', 'path': '/settings'}})
         except Exception:
             pass
 
-    # → Navegación directa
-    nav_map = {
-        'launchpad':     ('/launchpad',  'Yendo al Launchpad…'),
-        'dashboard':     ('/dashboard',  'Abriendo el Dashboard…'),
-        'inventario':    ('/inventario', 'Abriendo Inventario…'),
-        'restaurante':   ('/restaurante','Abriendo el Restaurante…'),
-        'cocina':        ('/restaurante/cocina', 'Abriendo la vista de Cocina…'),
-        'calendario':    ('/calendario', 'Abriendo el Calendario…'),
-        'tareas':        ('/tareas',     'Abriendo el tablero de Tareas…'),
-        'horas':         ('/hoja-horas', 'Abriendo la Hoja de Horas…'),
-        'sitio web':     ('/sitio-web',  'Abriendo el Constructor Web…'),
-        'configuracion': ('/settings',   'Abriendo Configuración…'),
-        'configuración': ('/settings',   'Abriendo Configuración…'),
-        'perfil':        ('/perfil',     'Abriendo tu Perfil…'),
+    # Regla 5: Ventas / Facturación
+    if any(w in msg for w in ['venta', 'ventas', 'factura', 'facturación', 'facturacion', 'cobro', 'pago', 'contabilidad']):
+        return Response({
+            'reply': (
+                "💰 **Módulo de Ventas y Facturación**\n\n"
+                "Este módulo te permite:\n"
+                "• Emitir facturas electrónicas\n"
+                "• Registrar ventas y cobros\n"
+                "• Ver reportes de ingresos por período\n"
+                "• Gestionar clientes y proveedores\n\n"
+                "📌 Actívalo desde el Launchpad → Apps para comenzar a facturar."
+            ),
+            'action': {'type': 'navigate', 'path': '/launchpad'}
+        })
+
+    # Regla 6: Guía general / Cómo usar / Ayuda / Manual
+    if any(w in msg for w in ['como', 'cómo', 'ayuda', 'guia', 'guía', 'manual', 'empezar', 'comenzar', 'tutorial', 'inicio', 'hola', 'hello', 'que puedes', 'qué puedes']):
+        active_mods = list(Module.objects.filter(is_active=True).values_list('name', flat=True))
+        mods_text   = ', '.join(active_mods) if active_mods else 'ningún módulo aún'
+        return Response({
+            'reply': (
+                f"¡Hola! Soy el asistente de **Synapsix ERP** 👋\n\n"
+                f"Estoy aquí para ayudarte a gestionar **{company_name}** de forma más eficiente.\n\n"
+                f"**Para comenzar, te recomiendo:**\n\n"
+                f"1️⃣ Ve a **Ajustes** para configurar tu empresa (RUC, logo, nombre)\n"
+                f"2️⃣ En el **Launchpad → Apps**, activa los módulos que necesitas\n"
+                f"3️⃣ Si usas el restaurante, ve a **Mesas** para gestionar comandas en tiempo real\n"
+                f"4️⃣ Usa el **Inventario** para registrar tus productos y controlar el stock\n\n"
+                f"**Módulos activos ahora:** {mods_text}\n\n"
+                f"¿Qué módulo específico deseas configurar juntos?"
+            ),
+            'action': None
+        })
+
+    # Regla 7: Configuración / Ajustes
+    if any(w in msg for w in ['configurar', 'configuración', 'ajuste', 'ajustes', 'ruc', 'logo', 'empresa', 'negocio']):
+        return Response({
+            'reply': (
+                "⚙️ **Configuración de la Empresa**\n\n"
+                "Desde **Ajustes** puedes:\n\n"
+                "• 🏢 Configurar nombre, RUC y datos de la empresa\n"
+                "• 🖼️ Subir el logo de tu negocio\n"
+                "• 👥 Gestionar usuarios y roles\n"
+                "• 🎨 Personalizar el tema y fondo del sistema\n"
+                "• 🔑 Cambiar contraseñas\n\n"
+                "¿Quieres que te lleve a Ajustes ahora?"
+            ),
+            'action': {'type': 'navigate', 'path': '/settings'}
+        })
+
+    # Regla 8: Navegación directa
+    nav_keywords = {
+        'launchpad':     ('/launchpad',           '🚀 Yendo al Launchpad…'),
+        'dashboard':     ('/dashboard',           '📊 Abriendo el Dashboard…'),
+        'inventario':    ('/inventario',          '📦 Abriendo Inventario…'),
+        'restaurante':   ('/restaurante',         '🍽️ Abriendo el Restaurante…'),
+        'cocina':        ('/restaurante/cocina',  '👨‍🍳 Abriendo la vista de Cocina…'),
+        'calendario':    ('/calendario',          '📅 Abriendo el Calendario…'),
+        'tareas':        ('/tareas',              '✅ Abriendo el tablero de Tareas…'),
+        'horas':         ('/hoja-horas',          '⏱️ Abriendo la Hoja de Horas…'),
+        'sitio web':     ('/sitio-web',           '🌐 Abriendo el Constructor Web…'),
+        'configuracion': ('/settings',            '⚙️ Abriendo Configuración…'),
+        'configuración': ('/settings',            '⚙️ Abriendo Configuración…'),
+        'perfil':        ('/perfil',              '👤 Abriendo tu Perfil…'),
     }
-    for keyword, (path, text) in nav_map.items():
-        if keyword in msg_lower and any(v in msg_lower for v in ['ir', 'abrir', 'lleva', 'llévame', 'muestra', 'ver', 'acceder', 'navegar']):
-            return expert_response(text, {'type': 'navigate', 'path': path})
+    nav_verbs = ['ir', 'abrir', 'lleva', 'llévame', 'muestra', 'ver', 'acceder', 'navegar', 'abre', 'entra', 'entrar']
+    for keyword, (path, text) in nav_keywords.items():
+        if keyword in msg and any(v in msg for v in nav_verbs):
+            return Response({'reply': text, 'action': {'type': 'navigate', 'path': path}})
 
-    # ── FALLBACK: HuggingFace Inference API (gratuita) ───────────────────────
+    # ─── FALLBACK INTELIGENTE: Respuesta contextual genérica ─────────────────
+    # (HuggingFace es un bonus silencioso — si falla, responde la guía local)
     HF_TOKEN = os.environ.get('HF_TOKEN', '')
-    HF_MODEL = os.environ.get(
-        'HF_MODEL',
-        'mistralai/Mistral-7B-Instruct-v0.2'   # Modelo gratuito, sin cuotas agresivas
-    )
-    HF_URL = f'https://api-inference.huggingface.co/models/{HF_MODEL}'
-
-    # Contexto del sistema para inyectar en el prompt
-    active_mods   = list(Module.objects.filter(is_active=True).values_list('name', flat=True))
-    system_ctx = (
-        f"Eres SynapsiX IA, asistente del ERP Synapsix para {company.name if company else 'la empresa'}. "
-        f"Módulos activos: {', '.join(active_mods) or 'Ninguno'}. "
-        f"Responde siempre en español, de forma concisa y profesional."
-    )
-
-    # Formato de prompt para Mistral Instruct
-    history = request.data.get('history', [])
-    history_text = ''
-    for h in history[-6:]:
-        role = 'user' if h.get('role') == 'user' else 'assistant'
-        history_text += f"[{role.upper()}]: {h.get('text', '')}\n"
-
-    prompt = f"[INST] {system_ctx}\n\n{history_text}[USER]: {message} [/INST]"
-
-    headers = {'Content-Type': 'application/json'}
     if HF_TOKEN:
-        headers['Authorization'] = f'Bearer {HF_TOKEN}'
+        try:
+            import requests as http_requests
+            HF_MODEL = os.environ.get('HF_MODEL', 'mistralai/Mistral-7B-Instruct-v0.2')
+            active_mods = list(Module.objects.filter(is_active=True).values_list('name', flat=True))
+            system_ctx = (
+                f"Eres SynapsiX IA, asistente del ERP Synapsix para {company_name}. "
+                f"Módulos activos: {', '.join(active_mods) or 'Ninguno'}. "
+                f"Responde siempre en español, de forma breve y profesional."
+            )
+            history      = request.data.get('history', [])
+            history_text = ''.join(
+                f"[{'user' if h.get('role')=='user' else 'assistant'}]: {h.get('text','')}\n"
+                for h in history[-4:]
+            )
+            prompt = f"[INST] {system_ctx}\n\n{history_text}[USER]: {message} [/INST]"
+            hf_resp = http_requests.post(
+                f'https://api-inference.huggingface.co/models/{HF_MODEL}',
+                headers={'Authorization': f'Bearer {HF_TOKEN}', 'Content-Type': 'application/json'},
+                json={'inputs': prompt, 'parameters': {'max_new_tokens': 300, 'temperature': 0.6, 'return_full_text': False}},
+                timeout=8,  # timeout corto para no bloquear
+            )
+            if hf_resp.status_code == 200:
+                data  = hf_resp.json()
+                reply = (data[0].get('generated_text', '') if isinstance(data, list) else data.get('generated_text', '')).strip()
+                if '[/INST]' in reply:
+                    reply = reply.split('[/INST]')[-1].strip()
+                if reply:
+                    return Response({'reply': reply, 'action': None})
+        except Exception:
+            pass  # HF falló → usamos guía local
 
-    try:
-        hf_response = http_requests.post(
-            HF_URL,
-            headers=headers,
-            json={
-                'inputs': prompt,
-                'parameters': {
-                    'max_new_tokens': 400,
-                    'temperature': 0.6,
-                    'return_full_text': False,
-                },
-            },
-            timeout=30,
-        )
-
-        if hf_response.status_code == 200:
-            data = hf_response.json()
-            if isinstance(data, list) and data:
-                reply = data[0].get('generated_text', '').strip()
-            elif isinstance(data, dict):
-                reply = data.get('generated_text', str(data)).strip()
-            else:
-                reply = str(data).strip()
-
-            # Limpiar el prompt del reply si HF lo incluye
-            if '[/INST]' in reply:
-                reply = reply.split('[/INST]')[-1].strip()
-
-            if not reply:
-                reply = 'No pude generar una respuesta. Por favor, reformula tu pregunta.'
-
-            return Response({'reply': reply, 'action': None})
-
-        elif hf_response.status_code == 503:
-            # Modelo cargando (cold start)
-            return Response({
-                'reply': (
-                    '⏳ El asistente está experimentando alta demanda. '
-                    'Intente de nuevo en unos momentos.\n\n'
-                    'Mientras tanto, puedo ayudarte con preguntas sobre '
-                    'mesas, inventario, tareas o empleados directamente.'
-                ),
-                'action': None,
-            })
-        else:
-            error_detail = hf_response.text[:200]
-            return Response({
-                'reply': (
-                    'El asistente está experimentando alta demanda. '
-                    f'Intente de nuevo en unos momentos. (HTTP {hf_response.status_code})'
-                ),
-                'action': None,
-            })
-
-    except http_requests.exceptions.Timeout:
-        return Response({
-            'reply': (
-                '⏳ El asistente está experimentando alta demanda. '
-                'Intente de nuevo en unos momentos.'
-            ),
-            'action': None,
-        })
-    except Exception as e:
-        return Response({
-            'reply': (
-                'El asistente está experimentando alta demanda. '
-                'Intente de nuevo en unos momentos.'
-            ),
-            'action': None,
-        })
-
-
-
-
+    # ─── GUÍA LOCAL: respuesta genérica siempre garantizada ─────────────────
+    active_mods = list(Module.objects.filter(is_active=True).values_list('name', flat=True))
+    return Response({
+        'reply': (
+            f"Hola 👋 Soy el asistente de **{company_name}**.\n\n"
+            f"Puedo ayudarte con:\n\n"
+            f"• 🍽️ **Restaurante** — estado de mesas y comandas\n"
+            f"• 📦 **Inventario** — productos y niveles de stock\n"
+            f"• ✅ **Tareas** — tablero Kanban del equipo\n"
+            f"• 👥 **Usuarios** — gestión del equipo\n"
+            f"• ⚙️ **Configuración** — ajustes de la empresa\n\n"
+            f"Escríbeme lo que necesitas o pregúntame sobre cualquier módulo 😊"
+        ),
+        'action': None
+    })
 
 
 
