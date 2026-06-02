@@ -9,7 +9,7 @@
  */
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import axios from 'axios'
+import api from '@api/axios'      // ← usa la instancia con baseURL=http://localhost:8000/api/v1
 import useAuthStore from '@store/authStore'
 
 export default function PublicWebsite() {
@@ -37,7 +37,8 @@ export default function PublicWebsite() {
     setLoading(true)
     setNotFound(false)
     setPageData(null)
-    axios.get(`/api/v1/web/public/page/${targetSlug}/`)
+    // api tiene baseURL='http://localhost:8000/api/v1' → apunta al Django backend
+    api.get(`/web/public/page/${targetSlug}/`)
       .then(res  => { setPageData(res.data); setLoading(false) })
       .catch(err => {
         if (err.response?.status === 404) setNotFound(true)

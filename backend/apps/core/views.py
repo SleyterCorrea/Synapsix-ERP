@@ -336,12 +336,12 @@ REGLAS:
             parts=[genai_types.Part(text=message)]
         ))
 
-        # Modelos en orden de preferencia
+        # Modelos en orden de preferencia (gemini-1.5-flash: menor cuota, sin rate-limit)
         CANDIDATE_MODELS = [
-            'gemini-2.0-flash',
-            'gemini-2.0-flash-lite',
             'gemini-1.5-flash',
+            'gemini-1.5-flash-8b',
             'gemini-1.5-pro',
+            'gemini-2.0-flash',
         ]
 
         response = None
@@ -393,7 +393,7 @@ REGLAS:
                 if text:
                     chat_history.append({'role': role, 'parts': [{'text': text}]})
 
-            for model_name in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
+            for model_name in ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'gemini-pro']:
                 try:
                     model = genai_old.GenerativeModel(
                         model_name=model_name,
