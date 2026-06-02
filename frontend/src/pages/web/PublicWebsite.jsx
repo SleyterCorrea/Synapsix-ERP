@@ -46,6 +46,78 @@ export default function PublicWebsite() {
       })
   }, [targetSlug])
 
+  // ── Post-procesado del header: inyectar logo + corregir links ─────────────
+  useEffect(() => {
+    if (!pageData || !headerRef.current) return
+
+    const container = headerRef.current
+    const { company_logo, company_name, pages = [] } = pageData
+
+    // 1️⃣ LOGO DINÁMICO: reemplaza cualquier elemento con data-logo o img[alt*='logo']
+    //    o el texto 'Mi Empresa' / el company_name anterior
+    if (company_logo) {
+      // Busca img con class o alt de logo
+      const logoImgs = container.querySelectorAll('img[data-logo], img[alt*="logo" i], img[alt*="empresa" i], img[src*="logo" i]')
+      logoImgs.forEach(img => {
+        img.src = company_logo
+        img.alt = company_name
+        img.style.maxHeight = '48px'
+        img.style.width = 'auto'
+        img.style.objectFit = 'contain'
+      })
+
+      // Busca textos que digan 'Mi Empresa' y los reemplaza por img
+      container.querySelectorAll('a, div, span, p, h1, h2, h3').forEach(el => {
+        if (el.children.length === 0 && el.textContent.trim() === 'Mi Empresa') {
+          const img = document.createElement('img')
+          img.src     = company_logo
+          img.alt     = company_name
+          img.style.maxHeight = '48px'
+          img.style.width     = 'auto'
+          img.style.objectFit = 'contain'
+          el.textContent = ''
+          el.appendChild(img)
+        }
+      })
+    } else if (company_name) {
+      // Sin logo: asegurar que el texto sea el nombre real
+      container.querySelectorAll('a, div, span, p').forEach(el => {
+        if (el.children.length === 0 && el.textContent.trim() === 'Mi Empresa') {
+          el.textContent = company_name
+        }
+      })
+    }
+
+    // 2️⃣ CORREGIR LINKS: remapea hrefs para mantenerse dentro del sitio público
+    //    /inicio → /preview/inicio (en modo preview) o / (en modo público)
+    const slugSet = new Set(pages.map(p => p.slug))
+    container.querySelectorAll('a[href]').forEach(link => {
+      const href = link.getAttribute('href') || ''
+
+      // Ignora anchors, externos, mailto, tel
+      if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('http')) return
+
+      // Extrae el slug del href: /inicio → inicio | /preview/inicio → inicio
+      const hrefSlug = href.replace(/^\/preview\//, '').replace(/^\//, '') || 'home'
+
+      // Solo corrige si el slug existe en nuestras páginas
+      if (slugSet.has(hrefSlug) || hrefSlug === 'home' || hrefSlug === '') {
+        const target = hrefSlug === 'home' || hrefSlug === '' ? 'home' : hrefSlug
+        link.setAttribute('href', isPreview ? `/preview/${target}` : `/${target === 'home' ? '' : target}`)
+        link.removeAttribute('target')
+      } else if (href === '/' || href === '') {
+        link.setAttribute('href', isPreview ? '/preview/home' : '/')
+      }
+
+      // Evita navegación a rutas internas del ERP
+      const erpRoutes = ['/launchpad', '/dashboard', '/inventario', '/restaurante', '/settings', '/perfil']
+      if (erpRoutes.some(r => href.startsWith(r))) {
+        link.setAttribute('href', isPreview ? '/preview/home' : '/')
+      }
+    })
+  }, [pageData, isPreview])
+
+
   // ── Re-ejecutar scripts del HTML guardado ─────────────────────────────
   const execScripts = (container) => {
     if (!container) return
@@ -231,12 +303,13 @@ export default function PublicWebsite() {
               Ingresar al sistema
             </button>
           ) : (
-            <button onClick={() => setShowLogin(true)} style={{
+            <a href="/login" style={{
               padding:'5px 14px', background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.12)',
-              borderRadius:20, color:'rgba(255,255,255,.75)', fontSize:11, fontWeight:500, cursor:'pointer',
+              borderRadius:20, color:'rgba(255,255,255,.75)', fontSize:11, fontWeight:500,
+              cursor:'pointer', textDecoration:'none', display:'inline-block',
             }}>
               Iniciar sesión
-            </button>
+            </a>
           )}
         </div>
       )}

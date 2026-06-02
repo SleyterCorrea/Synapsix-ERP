@@ -82,6 +82,19 @@ def get_public_page(request, slug):
         'footer_html': config.footer_html if config else '',
         'footer_css':  config.footer_css  if config else '',
         'global_css':  config.global_css  if config else '',
+        # Datos de empresa para logo dinámico y navegación
+        'company_name': page.company.name if page.company else '',
+        'company_logo': (
+            request.build_absolute_uri(page.company.logo.url)
+            if page.company and page.company.logo
+            else ''
+        ),
+        # Páginas publicadas para corregir los links del header dinámicamente
+        'pages': list(
+            WebPage.objects.filter(company=page.company, is_published=True)
+            .values('title', 'slug', 'is_home', 'order')
+            .order_by('order', 'slug')
+        ),
     })
 
 

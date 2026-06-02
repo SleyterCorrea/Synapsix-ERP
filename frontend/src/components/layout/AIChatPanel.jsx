@@ -83,9 +83,9 @@ export default function AIChatPanel() {
       setMessages(prev => [...prev, { role: 'model', text: reply }])
       if (action) handleAction(action)
     } catch (e) {
-      const errMsg = e.response?.data?.error || 'Error al contactar la IA. Verifica que GEMINI_API_KEY esté configurada.'
+      const errMsg = 'El asistente está experimentando alta demanda. Intente de nuevo en unos momentos.'
       setError(errMsg)
-      setMessages(prev => [...prev, { role: 'model', text: `⚠️ ${errMsg}`, isError: true }])
+      setMessages(prev => [...prev, { role: 'model', text: `⏳ ${errMsg}`, isError: true }])
     } finally { setLoading(false) }
   }
 

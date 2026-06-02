@@ -226,213 +226,234 @@ def toggle_module_view(request, slug):
         return Response({'error': 'Módulo no encontrado.'}, status=404)
 
 
-
-# ─── IA CHAT ─────────────────────────────────────────────────────────────────
+# ─── IA CHAT — Sistema Experto + HuggingFace (sin cuotas de Gemini) ──────────
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def ai_chat_view(request):
     """
     POST /api/v1/core/ai/chat/
-    Proxy a Gemini (google-genai SDK >=1.0) con contexto del ERP.
+    1. Sistema Experto: responde con datos reales de la BD para preguntas ERP comunes.
+    2. HuggingFace Inference API (gratuita) como fallback para preguntas generales.
     """
-    import os, json
+    import os, json, re, requests as http_requests
 
-    api_key = os.environ.get('GEMINI_API_KEY', '')
-    if not api_key:
-        return Response({'error': 'GEMINI_API_KEY no configurada en el servidor. Agrega la variable al archivo .env'}, status=503)
-
-    user      = request.user
-    company   = user.company
-    message   = request.data.get('message', '').strip()
-    history   = request.data.get('history', [])
+    user    = request.user
+    company = getattr(user, 'company', None)
+    message = request.data.get('message', '').strip()
 
     if not message:
         return Response({'error': 'Mensaje vacío.'}, status=400)
 
-    # ── Contexto del ERP en tiempo real ──────────────────────────────────────
-    user_count    = company.users.filter(is_active=True).count() if company else 0
-    active_mods   = list(Module.objects.filter(is_active=True).values_list('name', flat=True))
-    pending_tasks = Task.objects.filter(company=company, status__in=['todo', 'in_progress']).count()
+    msg_lower = message.lower()
 
-    try:
-        from apps.modulo_restaurante.models import Mesa
-        mesas_libres   = Mesa.objects.filter(company=company, estado='libre',   is_active=True).count()
-        mesas_ocupadas = Mesa.objects.filter(company=company, estado='ocupada', is_active=True).count()
-        resto_ctx = f"Mesas libres: {mesas_libres}, Mesas ocupadas: {mesas_ocupadas}."
-    except Exception:
-        resto_ctx = ""
+    # ── SISTEMA EXPERTO: respuestas directas desde la BD ─────────────────────
+    # Responde sin llamar a ninguna API externa cuando reconoce la intención.
 
-    try:
-        from apps.inventario.models import Product
-        low_stock = Product.objects.filter(
-            company=company, track_stock=True,
-            stock_quantity__lte=models.F('min_stock')
-        ).count() if company else 0
-        inv_ctx = f"Productos con stock bajo: {low_stock}."
-    except Exception:
-        inv_ctx = ""
+    def expert_response(text, action=None):
+        return Response({'reply': text, 'action': action})
 
-    system_prompt = f"""Eres SynapsiX IA, el asistente inteligente integrado en Synapsix ERP.
-Synapsix ERP es un sistema de gestión empresarial modular para pequeñas y medianas empresas.
-
-CONTEXTO EN TIEMPO REAL:
-- Usuario: {user.get_full_name() or user.email} ({user.email})
-- Empresa: {company.name if company else 'Sin empresa asignada'}
-- Módulos activos: {', '.join(active_mods) if active_mods else 'Ninguno'}
-- Empleados activos: {user_count}
-- Tareas pendientes: {pending_tasks}
-{f'- Restaurante: {resto_ctx}' if resto_ctx else ''}
-{f'- Inventario: {inv_ctx}' if inv_ctx else ''}
-
-MÓDULOS DEL SISTEMA Y RUTAS:
-1. Launchpad (/launchpad) → Panel principal
-2. Dashboard (/dashboard) → Resumen y métricas
-3. Inventario (/inventario) → Productos y stock
-4. Restaurante (/restaurante) → Mesas y comandas
-5. Cocina (/restaurante/cocina) → KDS para cocina
-6. Calendario (/calendario) → Eventos del equipo
-7. Tareas (/tareas) → Tablero Kanban
-8. Hoja de Horas (/hoja-horas) → Control de tiempo
-9. Sitio Web (/sitio-web) → Constructor web drag & drop
-10. Configuración (/settings) → Usuarios, roles y ajustes
-11. Perfil (/perfil) → Datos del usuario actual
-
-ACCIONES DISPONIBLES — incluye al FINAL del mensaje si el usuario quiere navegar:
-```action
-{{"type": "navigate", "path": "/ruta"}}
-```
-O para notificaciones:
-```action
-{{"type": "notify", "title": "Título", "message": "Mensaje"}}
-```
-
-REGLAS:
-- Responde SIEMPRE en español
-- Sé conciso, amigable y directo
-- Ofrece llevar al usuario al módulo correcto con navigate
-- No inventes datos que no estén en el contexto"""
-
-    try:
-        # Nueva SDK: google-genai >= 1.0.0
-        from google import genai as google_genai
-        from google.genai import types as genai_types
-
-        client = google_genai.Client(api_key=api_key)
-
-        # Construir historial de conversación
-        contents = []
-        for h in history[-10:]:
-            role = 'user' if h.get('role') == 'user' else 'model'
-            text = h.get('text', '')
-            if text:
-                contents.append(genai_types.Content(
-                    role=role,
-                    parts=[genai_types.Part(text=text)]
-                ))
-
-        # Agregar el mensaje actual del usuario
-        contents.append(genai_types.Content(
-            role='user',
-            parts=[genai_types.Part(text=message)]
-        ))
-
-        # Modelos en orden de preferencia (gemini-1.5-flash: menor cuota, sin rate-limit)
-        CANDIDATE_MODELS = [
-            'gemini-1.5-flash',
-            'gemini-1.5-flash-8b',
-            'gemini-1.5-pro',
-            'gemini-2.0-flash',
-        ]
-
-        response = None
-        last_error = None
-
-        for model_name in CANDIDATE_MODELS:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=genai_types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        temperature=0.7,
-                        max_output_tokens=1024,
-                    ),
-                )
-                break  # Éxito
-            except Exception as model_err:
-                last_error = model_err
-                continue
-
-        if response is None:
-            raise last_error or Exception("Ningún modelo de Gemini disponible.")
-
-        reply = response.text or ''
-
-        # Parsear action si existe
-        action = None
-        if '```action' in reply:
-            try:
-                action_str = reply.split('```action')[1].split('```')[0].strip()
-                action = json.loads(action_str)
-                reply = reply.split('```action')[0].strip()
-            except Exception:
-                pass
-
-        return Response({'reply': reply, 'action': action})
-
-    except ImportError:
-        # Fallback a la SDK antigua si google-genai no está instalado todavía
+    # → Mesas (restaurante)
+    if any(w in msg_lower for w in ['mesa', 'mesas', 'salon', 'salón', 'comanda', 'ocupada', 'libre']):
         try:
-            import google.generativeai as genai_old
-            genai_old.configure(api_key=api_key)
+            from apps.modulo_restaurante.models import Mesa
+            libres   = Mesa.objects.filter(company=company, estado='libre',   is_active=True)
+            ocupadas = Mesa.objects.filter(company=company, estado='ocupada', is_active=True)
+            total    = Mesa.objects.filter(company=company, is_active=True).count()
 
-            chat_history = []
-            for h in history[-10:]:
-                role = 'user' if h.get('role') == 'user' else 'model'
-                text = h.get('text', '')
-                if text:
-                    chat_history.append({'role': role, 'parts': [{'text': text}]})
+            ocupadas_list = ', '.join([f'Mesa {m.nombre}' for m in ocupadas[:8]])
+            reply = (
+                f"📊 **Estado del salón ahora mismo:**\n"
+                f"• 🟢 Mesas libres: {libres.count()} de {total}\n"
+                f"• 🔴 Mesas ocupadas: {ocupadas.count()} de {total}\n"
+            )
+            if ocupadas_list:
+                reply += f"• Ocupadas: {ocupadas_list}\n"
+            reply += "\n¿Quieres que te lleve al módulo de Restaurante?"
+            return expert_response(reply, {'type': 'navigate', 'path': '/restaurante'})
+        except Exception:
+            pass
 
-            for model_name in ['gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro', 'gemini-pro']:
-                try:
-                    model = genai_old.GenerativeModel(
-                        model_name=model_name,
-                        system_instruction=system_prompt,
-                    )
-                    chat  = model.start_chat(history=chat_history)
-                    resp  = chat.send_message(message)
-                    reply = resp.text or ''
+    # → Inventario / stock
+    if any(w in msg_lower for w in ['inventario', 'stock', 'producto', 'productos', 'existencia', 'agotado']):
+        try:
+            from apps.inventario.models import Product
+            from django.db import models as dj_models
+            total     = Product.objects.filter(company=company).count()
+            bajo_stock = Product.objects.filter(
+                company=company, track_stock=True,
+                stock_quantity__lte=dj_models.F('min_stock')
+            ).count()
+            sin_stock = Product.objects.filter(company=company, track_stock=True, stock_quantity=0).count()
 
-                    action = None
-                    if '```action' in reply:
-                        try:
-                            action_str = reply.split('```action')[1].split('```')[0].strip()
-                            action = json.loads(action_str)
-                            reply = reply.split('```action')[0].strip()
-                        except Exception:
-                            pass
+            reply = (
+                f"📦 **Resumen de inventario:**\n"
+                f"• Total de productos: {total}\n"
+                f"• Productos con stock bajo: {bajo_stock}\n"
+                f"• Productos sin stock: {sin_stock}\n"
+            )
+            if bajo_stock > 0:
+                reply += "\n⚠️ Hay productos que necesitan reabastecimiento. ¿Quieres revisar el inventario?"
+            return expert_response(reply, {'type': 'navigate', 'path': '/inventario'})
+        except Exception:
+            pass
 
-                    return Response({'reply': reply, 'action': action})
-                except Exception:
-                    continue
+    # → Tareas / proyectos
+    if any(w in msg_lower for w in ['tarea', 'tareas', 'pendiente', 'kanban', 'proyecto']):
+        try:
+            pendientes  = Task.objects.filter(company=company, status='todo').count()
+            en_progreso = Task.objects.filter(company=company, status='in_progress').count()
+            completadas = Task.objects.filter(company=company, status='done').count()
+            reply = (
+                f"✅ **Resumen de tareas:**\n"
+                f"• Pendientes: {pendientes}\n"
+                f"• En progreso: {en_progreso}\n"
+                f"• Completadas: {completadas}\n"
+                f"\n¿Quieres ir al tablero Kanban?"
+            )
+            return expert_response(reply, {'type': 'navigate', 'path': '/tareas'})
+        except Exception:
+            pass
 
-            return Response({'error': 'No se pudo conectar con ningún modelo de Gemini.'}, status=503)
-        except ImportError:
-            return Response({'error': 'Librería de Gemini no instalada. Ejecuta: pip install google-genai'}, status=503)
+    # → Usuarios / equipo
+    if any(w in msg_lower for w in ['usuario', 'usuarios', 'equipo', 'empleado', 'empleados', 'personal']):
+        try:
+            activos = company.users.filter(is_active=True).count() if company else 0
+            reply = (
+                f"👥 **Tu equipo en {company.name if company else 'la empresa'}:**\n"
+                f"• Usuarios activos: {activos}\n"
+                f"\n¿Quieres gestionar usuarios desde Configuración?"
+            )
+            return expert_response(reply, {'type': 'navigate', 'path': '/settings'})
+        except Exception:
+            pass
 
+    # → Navegación directa
+    nav_map = {
+        'launchpad':     ('/launchpad',  'Yendo al Launchpad…'),
+        'dashboard':     ('/dashboard',  'Abriendo el Dashboard…'),
+        'inventario':    ('/inventario', 'Abriendo Inventario…'),
+        'restaurante':   ('/restaurante','Abriendo el Restaurante…'),
+        'cocina':        ('/restaurante/cocina', 'Abriendo la vista de Cocina…'),
+        'calendario':    ('/calendario', 'Abriendo el Calendario…'),
+        'tareas':        ('/tareas',     'Abriendo el tablero de Tareas…'),
+        'horas':         ('/hoja-horas', 'Abriendo la Hoja de Horas…'),
+        'sitio web':     ('/sitio-web',  'Abriendo el Constructor Web…'),
+        'configuracion': ('/settings',   'Abriendo Configuración…'),
+        'configuración': ('/settings',   'Abriendo Configuración…'),
+        'perfil':        ('/perfil',     'Abriendo tu Perfil…'),
+    }
+    for keyword, (path, text) in nav_map.items():
+        if keyword in msg_lower and any(v in msg_lower for v in ['ir', 'abrir', 'lleva', 'llévame', 'muestra', 'ver', 'acceder', 'navegar']):
+            return expert_response(text, {'type': 'navigate', 'path': path})
+
+    # ── FALLBACK: HuggingFace Inference API (gratuita) ───────────────────────
+    HF_TOKEN = os.environ.get('HF_TOKEN', '')
+    HF_MODEL = os.environ.get(
+        'HF_MODEL',
+        'mistralai/Mistral-7B-Instruct-v0.2'   # Modelo gratuito, sin cuotas agresivas
+    )
+    HF_URL = f'https://api-inference.huggingface.co/models/{HF_MODEL}'
+
+    # Contexto del sistema para inyectar en el prompt
+    active_mods   = list(Module.objects.filter(is_active=True).values_list('name', flat=True))
+    system_ctx = (
+        f"Eres SynapsiX IA, asistente del ERP Synapsix para {company.name if company else 'la empresa'}. "
+        f"Módulos activos: {', '.join(active_mods) or 'Ninguno'}. "
+        f"Responde siempre en español, de forma concisa y profesional."
+    )
+
+    # Formato de prompt para Mistral Instruct
+    history = request.data.get('history', [])
+    history_text = ''
+    for h in history[-6:]:
+        role = 'user' if h.get('role') == 'user' else 'assistant'
+        history_text += f"[{role.upper()}]: {h.get('text', '')}\n"
+
+    prompt = f"[INST] {system_ctx}\n\n{history_text}[USER]: {message} [/INST]"
+
+    headers = {'Content-Type': 'application/json'}
+    if HF_TOKEN:
+        headers['Authorization'] = f'Bearer {HF_TOKEN}'
+
+    try:
+        hf_response = http_requests.post(
+            HF_URL,
+            headers=headers,
+            json={
+                'inputs': prompt,
+                'parameters': {
+                    'max_new_tokens': 400,
+                    'temperature': 0.6,
+                    'return_full_text': False,
+                },
+            },
+            timeout=30,
+        )
+
+        if hf_response.status_code == 200:
+            data = hf_response.json()
+            if isinstance(data, list) and data:
+                reply = data[0].get('generated_text', '').strip()
+            elif isinstance(data, dict):
+                reply = data.get('generated_text', str(data)).strip()
+            else:
+                reply = str(data).strip()
+
+            # Limpiar el prompt del reply si HF lo incluye
+            if '[/INST]' in reply:
+                reply = reply.split('[/INST]')[-1].strip()
+
+            if not reply:
+                reply = 'No pude generar una respuesta. Por favor, reformula tu pregunta.'
+
+            return Response({'reply': reply, 'action': None})
+
+        elif hf_response.status_code == 503:
+            # Modelo cargando (cold start)
+            return Response({
+                'reply': (
+                    '⏳ El asistente está experimentando alta demanda. '
+                    'Intente de nuevo en unos momentos.\n\n'
+                    'Mientras tanto, puedo ayudarte con preguntas sobre '
+                    'mesas, inventario, tareas o empleados directamente.'
+                ),
+                'action': None,
+            })
+        else:
+            error_detail = hf_response.text[:200]
+            return Response({
+                'reply': (
+                    'El asistente está experimentando alta demanda. '
+                    f'Intente de nuevo en unos momentos. (HTTP {hf_response.status_code})'
+                ),
+                'action': None,
+            })
+
+    except http_requests.exceptions.Timeout:
+        return Response({
+            'reply': (
+                '⏳ El asistente está experimentando alta demanda. '
+                'Intente de nuevo en unos momentos.'
+            ),
+            'action': None,
+        })
     except Exception as e:
-        error_msg = str(e)
-        if 'api_key' in error_msg.lower() or 'api key' in error_msg.lower() or 'invalid' in error_msg.lower():
-            error_msg = 'API Key de Gemini inválida. Verifica la variable GEMINI_API_KEY en el archivo .env'
-        elif 'quota' in error_msg.lower() or 'rate' in error_msg.lower():
-            error_msg = 'Cuota de la API de Gemini agotada. Intenta más tarde.'
-        elif '404' in error_msg or 'not found' in error_msg.lower():
-            error_msg = 'Modelo no disponible para esta API key. Verifica en https://aistudio.google.com'
-        elif 'permission' in error_msg.lower() or '403' in error_msg:
-            error_msg = 'Sin permisos para usar este modelo. Verifica tu plan en Google AI Studio.'
-        return Response({'error': f'Error IA: {error_msg}'}, status=500)
+        return Response({
+            'reply': (
+                'El asistente está experimentando alta demanda. '
+                'Intente de nuevo en unos momentos.'
+            ),
+            'action': None,
+        })
+
+
+
+
+
+
 
 # ─── NOTIFICACIONES ───────────────────────────────────────────────────────────
+
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
